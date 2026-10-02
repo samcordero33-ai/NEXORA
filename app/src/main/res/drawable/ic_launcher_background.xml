@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fondo del icono adaptativo: casi negro con un halo verde neón muy tenue. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54"
+                android:centerY="54"
+                android:gradientRadius="54">
+                <item android:offset="0" android:color="#FF101A16" />
+                <item android:offset="0.6" android:color="#FF0A0C10" />
+                <item android:offset="1" android:color="#FF05070A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

@@ -1,0 +1,20 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Gradle / build outputs
+app/build/
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# El wrapper sí se versiona: garantiza que todos compilan con la misma
+# versión de Gradle. No excluir gradle/wrapper/gradle-wrapper.jar.

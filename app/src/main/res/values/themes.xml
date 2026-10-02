@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tema de la ventana. NEXORA es Compose puro, así que este estilo solo existe
+  para lo que ocurre ANTES del primer frame: sin él, Android pinta la ventana en
+  blanco y se ve un destello al abrir la app.
+-->
+<resources>
+    <style name="Theme.Nexora" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/nexora_background</item>
+        <item name="android:statusBarColor">@color/nexora_background</item>
+        <item name="android:navigationBarColor">@color/nexora_background</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:colorAccent">@color/nexora_accent</item>
+    </style>
+</resources>

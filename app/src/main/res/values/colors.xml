@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paleta gaming oscura de NEXORA reflejada en XML.
+  Es la misma fuente de verdad que ui/theme/Color.kt; se duplica aquí porque el
+  tema de la ventana (pre-Compose) tiene que definirse en recursos.
+-->
+<resources>
+    <color name="nexora_background">#FF080A0E</color>
+    <color name="nexora_surface">#FF12161F</color>
+    <color name="nexora_accent">#FF00E676</color>
+    <color name="nexora_accent_alt">#FF7C5CFF</color>
+    <color name="nexora_text_primary">#FFE8ECF4</color>
+</resources>
