@@ -1,5 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Permisos de almacenamiento.
+
+      NEXORA necesita leer ejecutables que el usuario ha puesto en su
+      dispositivo. Hay dos vías y se declaran las dos:
+
+      1. READ_EXTERNAL_STORAGE (hasta API 32). En Android 12L y anteriores es
+         el permiso clásico de lectura del almacenamiento compartido. Se pide
+         en tiempo de ejecución. A partir de API 33 el sistema lo ignora: de
+         ahi el maxSdkVersion.
+
+      2. MANAGE_EXTERNAL_STORAGE (desde API 30). Es la unica forma de recorrer
+         por ruta el almacenamiento compartido y la microSD bajo Scoped
+         Storage, que es justo lo que hace la busqueda automatica de juegos.
+         No se pide con un dialogo de runtime: se solicita llevando al usuario
+         al ajuste del sistema (StorageAccessController.allFilesAccessIntent).
+         Se marca tools:ignore="ScopedStorage" porque su uso es intencional y
+         no un descuido de migracion.
+
+      La via principal de la aplicacion sigue siendo el Storage Access
+      Framework ("Escanear carpeta"), que no necesita ningun permiso.
+    -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <application
         android:name=".NexoraApplication"

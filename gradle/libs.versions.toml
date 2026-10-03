@@ -7,6 +7,8 @@ composeBom = "2024.02.00"
 coreKtx = "1.12.0"
 lifecycle = "2.7.0"
 activityCompose = "1.8.2"
+documentfile = "1.0.1"
+coroutines = "1.7.3"
 
 junit = "4.13.2"
 testExtJunit = "1.1.5"
@@ -18,6 +20,8 @@ androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtim
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentfile" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 
 # Jetpack Compose (todas las versiones las fija el BOM)
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }

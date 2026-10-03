@@ -1,4 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NEXORA</string>
+    <string name="app_subtitle">Windows Gaming Runtime for Android</string>
+
+    <!-- Secciones -->
+    <string name="section_my_games">Mis juegos</string>
+    <string name="section_device_info">Información del dispositivo</string>
+    <string name="section_storage_access">Acceso al almacenamiento</string>
+
+    <!-- Biblioteca -->
+    <string name="library_empty_title">No hay juegos agregados</string>
+    <string name="library_empty_body">Escanea una carpeta o busca juegos en el almacenamiento para verlos aquí.</string>
+    <string name="library_count">%1$d juegos en la biblioteca</string>
+    <string name="library_clear">Vaciar biblioteca</string>
+    <string name="library_remove_game">Quitar de la biblioteca</string>
+    <string name="library_size_unknown">Tamaño desconocido</string>
+    <string name="library_detected_by_scan">Detectado en el escaneo</string>
+
+    <!-- Acciones de escaneo -->
+    <string name="action_add_game">Añadir juego</string>
+    <string name="action_scan_folder">Escanear carpeta</string>
+    <string name="action_find_games">Buscar juegos</string>
+
+    <!-- Progreso y resultado -->
+    <string name="scan_progress_title">Escaneando almacenamiento</string>
+    <string name="scan_progress_counters">%1$d archivos · %2$d carpetas · %3$d candidatos</string>
+    <string name="scan_progress_truncated">Presupuesto de escaneo agotado; puede haber juegos sin visitar.</string>
+    <string name="scan_result_summary">%1$d juegos detectados · %2$d ejecutables descartados</string>
+    <string name="scan_result_nothing">No se encontró ningún ejecutable de juego en esta búsqueda.</string>
+    <string name="scan_error_no_shared_access">NEXORA no tiene acceso al almacenamiento compartido. Concede el acceso amplio o escanea una carpeta concreta, que no necesita permisos.</string>
+    <string name="scan_error_no_targets">No se encontró ninguna carpeta de almacenamiento accesible.</string>
+    <string name="scan_error_failed">No se pudo completar el escaneo: %1$s</string>
+
+    <!-- Permisos -->
+    <string name="storage_all_files_granted">Acceso amplio al almacenamiento concedido</string>
+    <string name="storage_all_files_missing">Sin acceso amplio al almacenamiento</string>
+    <string name="storage_legacy_missing">Falta el permiso de lectura de almacenamiento.</string>
+    <string name="storage_grant_all_files">Conceder acceso amplio</string>
+    <string name="storage_granted_folders">%1$d carpetas concedidas</string>
+    <string name="storage_saf_hint">Escanear una carpeta concreta funciona sin ningún permiso.</string>
+
+    <!-- Dispositivo -->
+    <string name="device_info_loading">Leyendo datos del dispositivo...</string>
+    <string name="device_info_device">Dispositivo</string>
+    <string name="device_info_android">Android</string>
+    <string name="device_info_architecture">Arquitectura</string>
+    <string name="device_info_cpu_cores">Núcleos de CPU</string>
+    <string name="device_info_total_memory">Memoria total</string>
+    <string name="device_info_available_memory">Memoria disponible</string>
+    <string name="device_info_unknown">Desconocido</string>
+    <string name="runtime_not_integrated">Runtime de ejecución no integrado todavía (Fase 3)</string>
 </resources>

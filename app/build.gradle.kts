@@ -16,8 +16,8 @@ android {
         minSdk = 26
         targetSdk = 34
 
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -62,7 +62,17 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+
+    // Acceso a documentos y arboles de carpetas (Storage Access Framework).
+    // Es la via principal de escaneo: no requiere ningun permiso.
+    implementation(libs.androidx.documentfile)
+
+    // Corrutinas: el escaneo de almacenamiento es cancellable y se ejecuta
+    // fuera del hilo principal.
+    implementation(libs.kotlinx.coroutines.android)
 
     // Jetpack Compose
     implementation(platform(libs.compose.bom))
