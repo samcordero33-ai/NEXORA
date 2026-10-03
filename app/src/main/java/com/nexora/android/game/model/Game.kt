@@ -6,13 +6,19 @@ package com.nexora.android.game.model
  * Fase 1: solo la estructura.
  * Fase 2: el escáner de almacenamiento rellena [source], [sizeBytes] y
  * [documentUri] además de los campos básicos.
+ * Fase 3: se añaden [iconPreset] e [iconUri] y el modelo se persiste en Room
+ * (`game/data/local/GameEntity.kt`), de modo que la biblioteca sobrevive al
+ * reinicio de la aplicación.
  *
  * @property id Identificador estable. El escáner lo deriva de la ruta del
  *   ejecutable, de modo que volver a escanear no duplica la entrada.
  * @property name Nombre mostrado en la biblioteca.
  * @property executablePath Ruta del ejecutable dentro del prefijo del runtime.
  * @property installDirectory Directorio de instalación del juego.
- * @property coverUri Portada opcional, como URI en texto.
+ * @property iconPreset Icono predeterminado elegido para la tarjeta. Se guarda
+ *   en base de datos y el usuario lo cambia desde "Ajustes del juego".
+ * @property iconUri Icono personalizado opcional, como URI en texto. `null`
+ *   significa que se usa el [iconPreset]. Está previsto para fases posteriores.
  * @property addedAtMillis Momento de alta, en milisegundos de época.
  * @property source Procedencia del alta.
  * @property sizeBytes Tamaño del ejecutable en bytes; 0 si no se pudo leer.
@@ -27,7 +33,8 @@ data class Game(
     val name: String,
     val executablePath: String,
     val installDirectory: String? = null,
-    val coverUri: String? = null,
+    val iconPreset: GameIconPreset = GameIconPreset.DEFAULT,
+    val iconUri: String? = null,
     val addedAtMillis: Long = 0L,
     val source: GameSource = GameSource.MANUAL,
     val sizeBytes: Long = 0L,
@@ -42,6 +49,18 @@ enum class GameSource {
 
     /** Detectado por el escáner de almacenamiento. */
     SCAN,
+    ;
+
+    companion object {
+
+        /**
+         * Traduce el valor guardado en base de datos a un origen.
+         *
+         * Un valor desconocido cae a [MANUAL] en vez de fallar.
+         */
+        fun fromName(name: String?): GameSource =
+            entries.firstOrNull { it.name == name } ?: MANUAL
+    }
 }
 
 /**

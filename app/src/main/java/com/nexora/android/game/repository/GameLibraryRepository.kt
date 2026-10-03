@@ -1,59 +1,70 @@
 package com.nexora.android.game.repository
 
+import com.nexora.android.game.data.local.GameDao
+import com.nexora.android.game.data.local.toDomain
+import com.nexora.android.game.data.local.toEntity
 import com.nexora.android.game.model.Game
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import com.nexora.android.game.model.GameIconPreset
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 /**
  * Biblioteca de juegos de NEXORA.
  *
- * Fase 2: la biblioteca vive **solo en memoria**. No hay persistencia todavía
- * porque el contrato de almacenamiento (y con él el identificador canónico de un
- * juego) se fija en la Fase 3, junto con la capa de datos. Esta clase ya expone
- * la interfaz que tendrá entonces, así que sustituirla por una implementación
- * respaldada en Room no obliga a tocar la UI.
+ * Fase 3: la biblioteca se apoya en **Room**. Es la misma interfaz que tenía en
+ * memoria en la Fase 2 (`games`, `addAll`, `remove`, `clear`), así que la UI no
+ * cambia de contrato; lo que cambia es que los juegos detectados sobreviven al
+ * reinicio de la aplicación.
  *
- * El deduplicado se hace por [Game.executablePath]: es lo que identifica
- * inequívocamente un juego dentro de un mismo volumen.
+ * El deduplicado lo hace la base de datos, no este repositorio: `exePath` tiene
+ * índice único y la inserción es `IGNORE`, de modo que reescanear no duplica ni
+ * pisa los datos del juego ya guardado.
  */
-class GameLibraryRepository {
+class GameLibraryRepository(
+    private val dao: GameDao,
+) {
 
-    private val mutableGames = MutableStateFlow<List<Game>>(emptyList())
+    /** Juegos de la biblioteca, ordenados alfabéticamente por título. */
+    val games: Flow<List<Game>> = dao.observeAll().map { entities ->
+        entities.map { it.toDomain() }
+    }
 
-    /** Juegos de la biblioteca, ordenados alfabéticamente por nombre. */
-    val games: StateFlow<List<Game>> = mutableGames.asStateFlow()
+    /** Un juego concreto observado en el tiempo; `null` si se borra. */
+    fun observeGame(gameId: String): Flow<Game?> =
+        dao.observeById(gameId).map { it?.toDomain() }
 
     /**
      * Incorpora los juegos detectados en un escaneo.
      *
      * @return número de juegos realmente nuevos; los repetidos se descartan.
      */
-    fun addAll(detected: List<Game>): Int {
+    suspend fun addAll(detected: List<Game>): Int {
         if (detected.isEmpty()) return 0
-        var added = 0
-        mutableGames.update { current ->
-            val knownPaths = current.mapTo(HashSet()) { it.executablePath }
-            val merged = current.toMutableList()
-            for (game in detected) {
-                if (game.executablePath in knownPaths) continue
-                knownPaths += game.executablePath
-                merged += game
-                added++
-            }
-            merged.sortedBy { it.name.lowercase() }
-        }
-        return added
+        val inserted = dao.insertIgnoringConflicts(detected.map { it.toEntity() })
+        return inserted.count { it != ROW_IGNORED }
     }
 
     /** Elimina un juego por identificador. */
-    fun remove(gameId: String) {
-        mutableGames.update { current -> current.filterNot { it.id == gameId } }
+    suspend fun remove(gameId: String) {
+        dao.deleteById(gameId)
     }
 
     /** Vacía la biblioteca. */
-    fun clear() {
-        mutableGames.update { emptyList() }
+    suspend fun clear() {
+        dao.deleteAll()
+    }
+
+    /** Lee un juego puntual; `null` si ya no está en la biblioteca. */
+    suspend fun gameById(gameId: String): Game? = dao.getById(gameId)?.toDomain()
+
+    /** Cambia el icono predeterminado de un juego. */
+    suspend fun setIconPreset(gameId: String, preset: GameIconPreset) {
+        dao.updateIconPreset(gameId, preset.ordinal)
+    }
+
+    private companion object {
+
+        /** Valor que devuelve Room en una fila ignorada por conflicto. */
+        const val ROW_IGNORED = -1L
     }
 }

@@ -13,14 +13,45 @@
     <string name="library_empty_body">Escanea una carpeta o busca juegos en el almacenamiento para verlos aquí.</string>
     <string name="library_count">%1$d juegos en la biblioteca</string>
     <string name="library_clear">Vaciar biblioteca</string>
-    <string name="library_remove_game">Quitar de la biblioteca</string>
     <string name="library_size_unknown">Tamaño desconocido</string>
     <string name="library_detected_by_scan">Detectado en el escaneo</string>
+
+    <!-- Acciones de la biblioteca -->
+    <string name="action_play">Jugar</string>
+    <string name="action_game_settings">Ajustes del juego</string>
+    <string name="play_not_available">"%1$s" ya está en tu biblioteca, pero el runtime de ejecución todavía no está integrado: el lanzamiento llega en una fase posterior.</string>
 
     <!-- Acciones de escaneo -->
     <string name="action_add_game">Añadir juego</string>
     <string name="action_scan_folder">Escanear carpeta</string>
     <string name="action_find_games">Buscar juegos</string>
+
+    <!-- Pantalla de detalle del juego -->
+    <string name="detail_title">Detalle del juego</string>
+    <string name="detail_action_back">Volver</string>
+    <string name="detail_section_executable">Ejecutable</string>
+    <string name="detail_section_options">Opciones iniciales</string>
+    <string name="detail_label_file">Archivo</string>
+    <string name="detail_label_folder">Carpeta de instalación</string>
+    <string name="detail_label_size">Tamaño</string>
+    <string name="detail_size_value">%1$s</string>
+    <string name="detail_label_source">Origen</string>
+    <string name="detail_label_added">Añadido</string>
+    <string name="detail_label_access">Acceso al archivo</string>
+    <string name="detail_label_path">Ruta completa</string>
+    <string name="detail_source_scan">Detectado en un escaneo</string>
+    <string name="detail_source_manual">Añadido manualmente</string>
+    <string name="detail_access_saf">Documento del Storage Access Framework</string>
+    <string name="detail_access_path">Ruta del sistema de archivos</string>
+    <string name="detail_action_change_icon">Cambiar ícono</string>
+    <string name="detail_action_copy_path">Copiar ruta del ejecutable</string>
+    <string name="detail_action_remove">Quitar de la biblioteca</string>
+    <string name="detail_icon_changed">Ícono del juego actualizado</string>
+    <string name="detail_path_copied">Ruta del ejecutable copiada</string>
+    <string name="detail_remove_title">¿Quitar este juego?</string>
+    <string name="detail_remove_body">Se borrará «%1$s» de la biblioteca. El archivo original no se modifica.</string>
+    <string name="detail_remove_confirm">Quitar</string>
+    <string name="detail_remove_cancel">Cancelar</string>
 
     <!-- Progreso y resultado -->
     <string name="scan_progress_title">Escaneando almacenamiento</string>
@@ -49,5 +80,5 @@
     <string name="device_info_total_memory">Memoria total</string>
     <string name="device_info_available_memory">Memoria disponible</string>
     <string name="device_info_unknown">Desconocido</string>
-    <string name="runtime_not_integrated">Runtime de ejecución no integrado todavía (Fase 3)</string>
+    <string name="runtime_not_integrated">Runtime de ejecución no integrado todavía (fases posteriores)</string>
 </resources>

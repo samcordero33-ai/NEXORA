@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    // Room genera el DAO en tiempo de compilacion.
+    alias(libs.plugins.kotlin.kapt)
 }
 
 // El compilador de Compose se acopla a la version de Kotlin:
@@ -16,8 +18,8 @@ android {
         minSdk = 26
         targetSdk = 34
 
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -73,6 +75,11 @@ dependencies {
     // Corrutinas: el escaneo de almacenamiento es cancellable y se ejecuta
     // fuera del hilo principal.
     implementation(libs.kotlinx.coroutines.android)
+
+    // Persistencia local: la biblioteca de juegos sobrevive al reinicio.
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    kapt(libs.androidx.room.compiler)
 
     // Jetpack Compose
     implementation(platform(libs.compose.bom))

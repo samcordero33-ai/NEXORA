@@ -9,6 +9,7 @@ lifecycle = "2.7.0"
 activityCompose = "1.8.2"
 documentfile = "1.0.1"
 coroutines = "1.7.3"
+room = "2.6.1"
 
 junit = "4.13.2"
 testExtJunit = "1.1.5"
@@ -22,6 +23,12 @@ androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentfile" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# Persistencia local (Fase 3): biblioteca de juegos en SQLite via Room.
+# room-compiler se aplica con kapt: genera la implementacion del DAO.
+androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
+androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 
 # Jetpack Compose (todas las versiones las fija el BOM)
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
@@ -42,3 +49,5 @@ compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+# Procesador de anotaciones de Kotlin para Room (kapt). Comparte version con Kotlin.
+kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }

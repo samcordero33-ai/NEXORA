@@ -1,5 +1,6 @@
 package com.nexora.android.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -13,8 +14,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -34,6 +37,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -49,7 +53,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nexora.android.R
 import com.nexora.android.engine.DeviceInfo
 import com.nexora.android.engine.DeviceInfoProvider
-import com.nexora.android.ui.components.GameListItem
+import com.nexora.android.game.model.Game
+import com.nexora.android.ui.components.GameCard
 import com.nexora.android.ui.components.NexoraCard
 import com.nexora.android.ui.components.ScanProgressCard
 import com.nexora.android.ui.components.SectionHeader
@@ -67,13 +72,22 @@ import com.nexora.android.ui.theme.NexoraWarning
 
 private const val BYTES_PER_GIGABYTE = 1024.0 * 1024.0 * 1024.0
 
+/** Ancho mínimo de una tarjeta de la biblioteca. */
+private val LIBRARY_CARD_MIN_WIDTH = 168.dp
+
 /**
- * Ruta de la pantalla principal: une el ViewModel con la pantalla pura.
+ * Ruta de la pantalla principal: une el ViewModel con las pantallas puras.
  *
  * Aquí viven los efectos que sí necesitan un `Context` o un ciclo de vida: el
  * selector de carpetas del sistema, la petición del permiso clásico de lectura y
- * la consulta de los datos del dispositivo. [NexoraHomeScreen] se queda sin
- * dependencias de Android, así que se puede previsualizar.
+ * la consulta de los datos del dispositivo. [NexoraHomeScreen] y
+ * [GameDetailScreen] se quedan sin dependencias de Android, así que se pueden
+ * previsualizar.
+ *
+ * La navegación es **estado** (`ScannerUiState.selectedGameId`): no hay
+ * Navigation Compose ni back stack propio. Con dos pantallas, el grafo de
+ * navegación sería más código que la propia navegación, y el estado sobrevive
+ * solo a los cambios de configuración.
  */
 @Composable
 fun NexoraHomeRoute(
@@ -115,34 +129,61 @@ fun NexoraHomeRoute(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    NexoraHomeScreen(
-        uiState = uiState,
-        deviceInfo = deviceInfo,
-        onScanFolder = { folderPicker.launch(null) },
-        onFindGames = viewModel::scanCommonDirectories,
-        onRemoveGame = viewModel::removeGame,
-        onClearLibrary = viewModel::clearLibrary,
-        onGrantAllFilesAccess = {
-            viewModel.allFilesAccessIntent()?.let { context.startActivity(it) }
-        },
-        onDismissMessages = viewModel::dismissMessages,
-        modifier = modifier,
-    )
+    // El juego abierto en detalle; se deriva del estado para que la pantalla
+    // vuelva sola a la biblioteca si el juego se borra.
+    val selectedGame = remember(uiState.games, uiState.selectedGameId) {
+        uiState.selectedGameId?.let { id -> uiState.games.firstOrNull { it.id == id } }
+    }
+
+    BackHandler(enabled = selectedGame != null) { viewModel.closeGameDetail() }
+
+    if (selectedGame != null) {
+        GameDetailScreen(
+            game = selectedGame,
+            onBack = viewModel::closeGameDetail,
+            onPlay = { viewModel.requestPlay(selectedGame) },
+            onChangeIcon = { viewModel.cycleGameIcon(selectedGame.id) },
+            onCopyPath = viewModel::notifyPathCopied,
+            onRemove = { viewModel.removeGame(selectedGame.id) },
+            modifier = modifier,
+        )
+    } else {
+        NexoraHomeScreen(
+            uiState = uiState,
+            deviceInfo = deviceInfo,
+            onOpenGame = viewModel::openGameDetail,
+            onPlayGame = viewModel::requestPlay,
+            onScanFolder = { folderPicker.launch(null) },
+            onFindGames = viewModel::scanCommonDirectories,
+            onClearLibrary = viewModel::clearLibrary,
+            onGrantAllFilesAccess = {
+                viewModel.allFilesAccessIntent()?.let { context.startActivity(it) }
+            },
+            onDismissMessages = viewModel::dismissMessages,
+            modifier = modifier,
+        )
+    }
 }
 
 /**
  * Pantalla principal de NEXORA.
  *
- * Compuesta por: encabezado de marca, biblioteca de juegos, acciones de
- * escaneo, estado del almacenamiento e información del dispositivo.
+ * Compuesta por: encabezado de marca, biblioteca de juegos en grilla, acciones
+ * de escaneo, estado del almacenamiento e información del dispositivo.
+ *
+ * El contenedor es una `LazyVerticalGrid` con celdas adaptativas: las tarjetas
+ * ocupan el ancho que toque y el resto de secciones se emiten a span completo.
+ * Así la grilla se desplaza con la página en un solo contenedor perezoso (una
+ * grilla anidada dentro de una lista no está permitida en Compose).
  */
 @Composable
 fun NexoraHomeScreen(
     uiState: ScannerUiState,
     deviceInfo: DeviceInfo?,
+    onOpenGame: (String) -> Unit,
+    onPlayGame: (Game) -> Unit,
     onScanFolder: () -> Unit,
     onFindGames: () -> Unit,
-    onRemoveGame: (String) -> Unit,
     onClearLibrary: () -> Unit,
     onGrantAllFilesAccess: () -> Unit,
     onDismissMessages: () -> Unit,
@@ -152,32 +193,41 @@ fun NexoraHomeScreen(
         modifier = modifier.fillMaxSize(),
         color = NexoraBackground,
     ) {
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = LIBRARY_CARD_MIN_WIDTH),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { NexoraHeader() }
+            item(span = { GridItemSpan(maxLineSpan) }) { NexoraHeader() }
 
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Spacer(modifier = Modifier.height(16.dp))
                 SectionHeader(title = stringResource(R.string.section_my_games))
             }
 
             if (uiState.games.isEmpty()) {
-                item { EmptyGameLibrary() }
+                item(span = { GridItemSpan(maxLineSpan) }) { EmptyGameLibrary() }
             } else {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         text = stringResource(R.string.library_count, uiState.games.size),
                         style = MaterialTheme.typography.bodySmall,
                         color = NexoraTextSecondary,
                     )
                 }
+
                 items(items = uiState.games, key = { it.id }) { game ->
-                    GameListItem(game = game, onRemove = { onRemoveGame(game.id) })
+                    GameCard(
+                        game = game,
+                        onOpen = { onOpenGame(game.id) },
+                        onPlay = { onPlayGame(game) },
+                        onSettings = { onOpenGame(game.id) },
+                    )
                 }
-                item {
+
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     OutlinedButton(
                         onClick = onClearLibrary,
                         modifier = Modifier.fillMaxWidth(),
@@ -191,7 +241,7 @@ fun NexoraHomeScreen(
                 }
             }
 
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Spacer(modifier = Modifier.height(8.dp))
                 ScanActions(
                     isScanning = uiState.isScanning,
@@ -201,11 +251,13 @@ fun NexoraHomeScreen(
             }
 
             if (uiState.isScanning && uiState.progress != null) {
-                item { ScanProgressCard(progress = uiState.progress) }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ScanProgressCard(progress = uiState.progress)
+                }
             }
 
             if (uiState.infoMessage != null || uiState.errorMessage != null) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     ScanMessageCard(
                         message = uiState.infoMessage ?: uiState.errorMessage.orEmpty(),
                         isError = uiState.errorMessage != null,
@@ -214,7 +266,7 @@ fun NexoraHomeScreen(
                 }
             }
 
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Spacer(modifier = Modifier.height(12.dp))
                 SectionHeader(title = stringResource(R.string.section_storage_access))
                 StorageAccessCard(
@@ -223,12 +275,12 @@ fun NexoraHomeScreen(
                 )
             }
 
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Spacer(modifier = Modifier.height(20.dp))
                 SectionHeader(title = stringResource(R.string.section_device_info))
             }
 
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 if (deviceInfo == null) {
                     DeviceInfoLoading()
                 } else {
@@ -356,6 +408,7 @@ private fun ScanMessageCard(
     }
 }
 
+/** Estado vacío de la biblioteca: limpio y con la acción siguiente a la vista. */
 @Composable
 private fun EmptyGameLibrary(
     modifier: Modifier = Modifier,
@@ -498,9 +551,10 @@ private fun NexoraHomeScreenPreview() {
         NexoraHomeScreen(
             uiState = ScannerUiState(),
             deviceInfo = null,
+            onOpenGame = {},
+            onPlayGame = {},
             onScanFolder = {},
             onFindGames = {},
-            onRemoveGame = {},
             onClearLibrary = {},
             onGrantAllFilesAccess = {},
             onDismissMessages = {},

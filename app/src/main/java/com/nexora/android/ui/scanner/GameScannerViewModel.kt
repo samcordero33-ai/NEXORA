@@ -7,7 +7,9 @@ import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nexora.android.R
+import com.nexora.android.game.data.local.NexoraDatabase
 import com.nexora.android.game.model.Game
+import com.nexora.android.game.model.GameIconPreset
 import com.nexora.android.game.repository.GameLibraryRepository
 import com.nexora.android.game.scan.GameScanner
 import com.nexora.android.game.scan.ScanConfig
@@ -30,7 +32,10 @@ import kotlinx.coroutines.launch
  * Se modela como una única data class inmutable: la pantalla es una función
  * pura de este estado, lo que la hace previewable y testeable sin ciclo de vida.
  *
- * @property games Juegos de la biblioteca.
+ * @property games Juegos de la biblioteca, persistidos en Room.
+ * @property selectedGameId Juego abierto en la pantalla de detalle; `null` es la
+ *   biblioteca. La navegación es estado, así que sobrevive a la rotación y no
+ *   necesita Navigation Compose ni back stack propio.
  * @property isScanning `true` mientras hay un escaneo en curso.
  * @property progress Progreso del escaneo en curso; `null` si no hay ninguno.
  * @property lastOutcome Resultado del último escaneo, para el resumen.
@@ -40,6 +45,7 @@ import kotlinx.coroutines.launch
  */
 data class ScannerUiState(
     val games: List<Game> = emptyList(),
+    val selectedGameId: String? = null,
     val isScanning: Boolean = false,
     val progress: ScanProgress? = null,
     val lastOutcome: ScanOutcome? = null,
@@ -53,13 +59,15 @@ data class ScannerUiState(
  *
  * Orquesta los permisos, el escáner y la biblioteca. No contiene lógica de
  * negocio: la decisión de qué es un juego vive en `GameScanner`, y la
- * biblioteca en `GameLibraryRepository`.
+ * biblioteca en `GameLibraryRepository` (respaldada por Room).
  */
 class GameScannerViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
 
-    private val repository = GameLibraryRepository()
+    private val repository = GameLibraryRepository(
+        dao = NexoraDatabase.getInstance(application).gameDao(),
+    )
     private val accessController = StorageAccessController(application)
     private val settings: AppSettings = AppSettings.DEFAULT
 
@@ -67,9 +75,19 @@ class GameScannerViewModel(
     val uiState: StateFlow<ScannerUiState> = mutableUiState.asStateFlow()
 
     init {
+        // Room re-emite la consulta ante cualquier cambio de la tabla: la UI se
+        // refresca sola tras escanear, borrar o cambiar un icono.
         viewModelScope.launch {
             repository.games.collect { games ->
-                mutableUiState.update { it.copy(games = games) }
+                mutableUiState.update { state ->
+                    state.copy(
+                        games = games,
+                        // Un juego borrado no puede seguir abierto en detalle.
+                        selectedGameId = state.selectedGameId?.takeIf { id ->
+                            games.any { it.id == id }
+                        },
+                    )
+                }
             }
         }
         refreshStorageAccess()
@@ -135,15 +153,78 @@ class GameScannerViewModel(
         }
     }
 
-    /** Elimina un juego de la biblioteca. */
+    // --- Navegación ---------------------------------------------------------
+
+    /** Abre la pantalla de detalle de un juego. */
+    fun openGameDetail(gameId: String) {
+        mutableUiState.update { it.copy(selectedGameId = gameId) }
+    }
+
+    /** Vuelve de la pantalla de detalle a la biblioteca. */
+    fun closeGameDetail() {
+        mutableUiState.update { it.copy(selectedGameId = null) }
+    }
+
+    // --- Acciones de la biblioteca -----------------------------------------
+
+    /**
+     * Botón "Jugar".
+     *
+     * Fase 3: el juego ya está registrado y persistido, pero **no se lanza**: el
+     * runtime de ejecución se integra en fases posteriores. El botón existe y es
+     * funcional (informa al usuario) para no tener que tocar la tarjeta cuando
+     * llegue el motor.
+     */
+    fun requestPlay(game: Game) {
+        mutableUiState.update {
+            it.copy(
+                infoMessage = getString(R.string.play_not_available, game.name),
+                errorMessage = null,
+            )
+        }
+    }
+
+    /** Cambia el icono predeterminado del juego al siguiente de la lista. */
+    fun cycleGameIcon(gameId: String) {
+        viewModelScope.launch {
+            val game = repository.gameById(gameId) ?: return@launch
+            val next = GameIconPreset.next(game.iconPreset)
+            repository.setIconPreset(gameId, next)
+            mutableUiState.update {
+                it.copy(infoMessage = getString(R.string.detail_icon_changed), errorMessage = null)
+            }
+        }
+    }
+
+    /** Avisa de que la ruta del ejecutable se copió al portapapeles. */
+    fun notifyPathCopied() {
+        mutableUiState.update {
+            it.copy(infoMessage = getString(R.string.detail_path_copied), errorMessage = null)
+        }
+    }
+
+    /** Elimina un juego de la biblioteca (y cierra su detalle si estaba abierto). */
     fun removeGame(gameId: String) {
-        repository.remove(gameId)
+        viewModelScope.launch {
+            repository.remove(gameId)
+            mutableUiState.update {
+                it.copy(
+                    selectedGameId = it.selectedGameId?.takeUnless { id -> id == gameId },
+                    infoMessage = null,
+                    errorMessage = null,
+                )
+            }
+        }
     }
 
     /** Vacía la biblioteca. */
     fun clearLibrary() {
-        repository.clear()
-        mutableUiState.update { it.copy(lastOutcome = null, infoMessage = null) }
+        viewModelScope.launch {
+            repository.clear()
+            mutableUiState.update {
+                it.copy(lastOutcome = null, infoMessage = null, selectedGameId = null)
+            }
+        }
     }
 
     /** Descarta los mensajes informativos y de error. */

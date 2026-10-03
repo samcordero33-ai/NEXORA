@@ -1,5 +1,7 @@
 package com.nexora.android.ui.util
 
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 private const val BYTES_PER_KILOBYTE = 1024.0
@@ -20,4 +22,15 @@ fun formatBytes(bytes: Long): String {
         bytes >= BYTES_PER_KILOBYTE -> String.format(Locale.US, "%.0f KB", bytes / BYTES_PER_KILOBYTE)
         else -> "$bytes B"
     }
+}
+
+/**
+ * Formatea una fecha de alta de la biblioteca con la locale del dispositivo.
+ *
+ * @return `-` para un valor no positivo: un juego sin fecha de alta es un dato
+ *   incompleto, y mostrar la época (1970) sería mentir.
+ */
+fun formatDateTime(millis: Long): String {
+    if (millis <= 0L) return "-"
+    return SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()).format(Date(millis))
 }
