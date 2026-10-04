@@ -86,6 +86,43 @@
     <string name="profile_value_yes">Sí</string>
     <string name="profile_value_no">No</string>
 
+    <!-- Controles táctiles / HUD (Fase 5) -->
+    <string name="section_controls">Controles táctiles</string>
+    <string name="controls_card_title">Controles táctiles (HUD)</string>
+    <string name="controls_card_summary">Capa flotante con ratón virtual, gestos RTS y botones de acceso rápido.</string>
+    <string name="controls_label_opacity">Transparencia del HUD: %1$d%%</string>
+    <string name="controls_card_opacity">Transparencia</string>
+    <string name="controls_percent_value">%1$d %%</string>
+    <string name="controls_label_visible">Botones visibles</string>
+    <string name="controls_visible_value">%1$d de %2$d</string>
+    <string name="controls_label_dragbox">Recuadro de selección al arrastrar</string>
+    <string name="controls_action_edit">Editar controles</string>
+    <string name="controls_runtime_note">El HUD se dibujará sobre el juego cuando el runtime esté integrado. Todavía no se lanza ningún ejecutable.</string>
+    <string name="controls_editor_title">Controles</string>
+    <string name="controls_mode_edit">Editar</string>
+    <string name="controls_mode_test">Probar gestos</string>
+    <string name="controls_editor_hint_edit">Arrastra un botón para moverlo. Selecciónalo abajo para cambiar su tamaño o ocultarlo.</string>
+    <string name="controls_editor_hint_test">Un toque es clic izquierdo; dos dedos o una pulsación larga, clic derecho; arrastra para el recuadro; pellizca para el zoom.</string>
+    <string name="controls_editor_actions">Botones del HUD</string>
+    <string name="controls_editor_selected">Botón seleccionado: %1$s</string>
+    <string name="controls_editor_none">ninguno</string>
+    <string name="controls_editor_size">Tamaño del botón</string>
+    <string name="controls_editor_position">Posición: %1$d%% × %2$d%%</string>
+    <string name="controls_editor_visible">Visible</string>
+    <string name="controls_editor_save">Guardar</string>
+    <string name="controls_editor_reset">Restablecer</string>
+    <string name="controls_editor_reset_title">¿Restablecer la disposición?</string>
+    <string name="controls_editor_reset_body">Los botones volverán a la posición y al tamaño predeterminados de NEXORA.</string>
+    <string name="controls_editor_reset_confirm">Restablecer</string>
+    <string name="controls_saved">Disposición de controles guardada</string>
+    <string name="controls_reset_done">Disposición de controles restablecida</string>
+    <string name="controls_event_log">Últimos gestos reconocidos</string>
+    <string name="controls_event_log_empty">Toca, arrastra o pellizca sobre el panel: los gestos aparecen aquí.</string>
+    <string name="controls_gesture_tap">Un toque: mover cursor y clic izquierdo</string>
+    <string name="controls_gesture_secondary">Dos dedos o pulsación larga: clic derecho</string>
+    <string name="controls_gesture_box">Arrastre con un dedo: recuadro de selección</string>
+    <string name="controls_gesture_zoom">Pellizcar: zoom de cámara</string>
+
     <!-- Progreso y resultado -->
     <string name="scan_progress_title">Escaneando almacenamiento</string>
     <string name="scan_progress_counters">%1$d archivos · %2$d carpetas · %3$d candidatos</string>

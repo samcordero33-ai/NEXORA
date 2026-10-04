@@ -15,6 +15,10 @@ import com.nexora.android.engine.profile.GameProfileInspector
 import com.nexora.android.engine.profile.PerformanceParameters
 import com.nexora.android.engine.profile.PerformanceProfile
 import com.nexora.android.engine.profile.ProfileRecommendation
+import com.nexora.android.control.model.ControlAction
+import com.nexora.android.control.model.ControlLayout
+import com.nexora.android.control.model.HudControl
+import com.nexora.android.control.repository.ControlLayoutRepository
 import com.nexora.android.game.data.local.NexoraDatabase
 import com.nexora.android.game.model.Game
 import com.nexora.android.game.model.GameIconPreset
@@ -28,6 +32,7 @@ import com.nexora.android.permission.StorageAccessController
 import com.nexora.android.permission.StorageAccessState
 import com.nexora.android.settings.AppSettings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +60,9 @@ import kotlinx.coroutines.launch
  * @property profileRecommendation Recomendación del AutoOptimizer para ese juego.
  * @property customParameters Parámetros derivados para el perfil
  *   "Auto Personalizado" en este dispositivo.
+ * @property controlLayout Disposición del HUD táctil del juego abierto (Fase 5).
+ * @property controlEditorGameId Juego cuyo HUD se está editando; `null` fuera
+ *   del editor. La navegación sigue siendo estado: no hay grafo que mantener.
  */
 data class ScannerUiState(
     val games: List<Game> = emptyList(),
@@ -69,6 +77,8 @@ data class ScannerUiState(
     val profileHints: GameProfileHints? = null,
     val profileRecommendation: ProfileRecommendation? = null,
     val customParameters: PerformanceParameters? = null,
+    val controlLayout: ControlLayout? = null,
+    val controlEditorGameId: String? = null,
 )
 
 /**
@@ -83,9 +93,9 @@ class GameScannerViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
 
-    private val repository = GameLibraryRepository(
-        dao = NexoraDatabase.getInstance(application).gameDao(),
-    )
+    private val database = NexoraDatabase.getInstance(application)
+    private val repository = GameLibraryRepository(dao = database.gameDao())
+    private val controlRepository = ControlLayoutRepository(dao = database.controlLayoutDao())
     private val accessController = StorageAccessController(application)
     private val deviceInfoProvider = DeviceInfoProvider(application)
     private val profileInspector = GameProfileInspector(application)
@@ -94,6 +104,9 @@ class GameScannerViewModel(
 
     private val mutableUiState = MutableStateFlow(ScannerUiState())
     val uiState: StateFlow<ScannerUiState> = mutableUiState.asStateFlow()
+
+    /** Observa el HUD del juego abierto. Se cancela al cerrar el detalle. */
+    private var controlJob: Job? = null
 
     init {
         mutableUiState.update { it.copy(deviceInfo = deviceInfoProvider.getDeviceInfo()) }
@@ -197,18 +210,140 @@ class GameScannerViewModel(
                 customParameters = null,
             )
         }
+        observeControlLayout(gameId)
         viewModelScope.launch { recommendProfileFor(gameId) }
     }
 
-    /** Vuelve de la pantalla de detalle a la biblioteca. */
+    /**
+     * Vuelve de la pantalla de detalle a la biblioteca.
+     *
+     * La disposición del HUD se guarda al salir, aunque el usuario no haya
+     * pulsado "Guardar": perder el trabajo por cerrar la pantalla sería peor que
+     * escribir una fila de más.
+     */
     fun closeGameDetail() {
+        saveControlLayout()
+        controlJob?.cancel()
+        controlJob = null
         mutableUiState.update {
             it.copy(
                 selectedGameId = null,
                 profileHints = null,
                 profileRecommendation = null,
                 customParameters = null,
+                controlLayout = null,
+                controlEditorGameId = null,
             )
+        }
+    }
+
+    // --- Editor del HUD táctil ---------------------------------------------
+
+    /** Abre el editor de la disposición táctil de un juego. */
+    fun openControlEditor(gameId: String) {
+        mutableUiState.update { it.copy(controlEditorGameId = gameId) }
+    }
+
+    /** Cierra el editor guardando la disposición. */
+    fun closeControlEditor() {
+        saveControlLayout()
+        mutableUiState.update { it.copy(controlEditorGameId = null) }
+    }
+
+    /** Escribe en Room la disposición que hay en pantalla. */
+    fun saveControlLayout() {
+        val layout = mutableUiState.value.controlLayout ?: return
+        viewModelScope.launch {
+            controlRepository.save(layout)
+            mutableUiState.update {
+                it.copy(
+                    infoMessage = getString(R.string.controls_saved),
+                    errorMessage = null,
+                )
+            }
+        }
+    }
+
+    /** Devuelve el HUD a la disposición de fábrica de NEXORA. */
+    fun resetControlLayout() {
+        val gameId = mutableUiState.value.controlLayout?.gameId ?: return
+        viewModelScope.launch {
+            controlRepository.reset(gameId)
+            mutableUiState.update {
+                it.copy(
+                    infoMessage = getString(R.string.controls_reset_done),
+                    errorMessage = null,
+                )
+            }
+        }
+    }
+
+    /**
+     * Mueve un botón durante el arrastre.
+     *
+     * Solo cambia el estado en memoria: arrastrar dispara decenas de eventos por
+     * segundo y no se va a escribir en base de datos en cada uno. El guardado
+     * llega al soltar el botón ("Guardar" o al salir del editor).
+     */
+    fun moveControl(action: ControlAction, deltaX: Float, deltaY: Float) {
+        updateControl(action) { control ->
+            control.copy(
+                centerX = control.centerX + deltaX,
+                centerY = control.centerY + deltaY,
+            ).clamped()
+        }
+    }
+
+    /** Cambia el tamaño del botón seleccionado. */
+    fun resizeControl(action: ControlAction, size: Float) {
+        updateControl(action) { control -> control.copy(size = size).clamped() }
+    }
+
+    /** Muestra u oculta un botón del HUD. */
+    fun toggleControlVisibility(action: ControlAction) {
+        updateControl(action) { control -> control.copy(visible = !control.visible) }
+    }
+
+    /** Transparencia de la capa flotante, de 0 a 1. */
+    fun setOverlayOpacity(opacity: Float) {
+        mutableUiState.update { state ->
+            val layout = state.controlLayout ?: return@update state
+            state.copy(controlLayout = layout.copy(overlayOpacity = opacity.coerceIn(0f, 1f)))
+        }
+    }
+
+    /** Activa o desactiva el recuadro de selección del arrastre con un dedo. */
+    fun setDragBoxEnabled(enabled: Boolean) {
+        mutableUiState.update { state ->
+            val layout = state.controlLayout ?: return@update state
+            state.copy(controlLayout = layout.copy(dragBoxEnabled = enabled))
+        }
+    }
+
+    private fun updateControl(action: ControlAction, transform: (HudControl) -> HudControl) {
+        mutableUiState.update { state ->
+            val layout = state.controlLayout ?: return@update state
+            val control = layout.controlFor(action) ?: return@update state
+            state.copy(controlLayout = layout.withControl(transform(control)))
+        }
+    }
+
+    /**
+     * Observa la disposición del HUD de un juego.
+     *
+     * Un juego recién escaneado no tiene filas: el repositorio devuelve la
+     * disposición predeterminada, así que el editor siempre tiene algo que
+     * dibujar y la primera pulsación de "Guardar" crea las filas.
+     */
+    private fun observeControlLayout(gameId: String) {
+        controlJob?.cancel()
+        controlJob = viewModelScope.launch {
+            controlRepository.observeLayout(gameId).collect { layout ->
+                mutableUiState.update { state ->
+                    if (state.selectedGameId != gameId) return@update state
+                    state.copy(controlLayout = layout)
+                }
+            }
         }
     }
 
@@ -278,12 +413,18 @@ class GameScannerViewModel(
     fun removeGame(gameId: String) {
         viewModelScope.launch {
             repository.remove(gameId)
+            if (mutableUiState.value.selectedGameId == gameId) {
+                controlJob?.cancel()
+                controlJob = null
+            }
             mutableUiState.update {
                 it.copy(
                     selectedGameId = it.selectedGameId?.takeUnless { id -> id == gameId },
                     profileHints = null,
                     profileRecommendation = null,
                     customParameters = null,
+                    controlLayout = it.controlLayout?.takeUnless { it.gameId == gameId },
+                    controlEditorGameId = null,
                     infoMessage = null,
                     errorMessage = null,
                 )

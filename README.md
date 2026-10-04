@@ -1,4 +1,4 @@
-# NEXORA v0.4 — Fase 4
+# NEXORA v0.5 — Fase 5
 
 **Windows Gaming Runtime for Android.**
 
@@ -10,16 +10,19 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   juegos instalados (`.exe`), gestión de permisos y progreso en la UI.
 - **Fase 3 (v0.3):** persistencia local de la biblioteca con Room, grilla de
   tarjetas gaming y pantalla de detalle del juego.
-- **Fase 4 (v0.4, esta versión):** sistema **AutoOptimizer** y gestión de
-  perfiles de rendimiento/compatibilidad según el hardware detectado.
+- **Fase 4 (v0.4):** sistema **AutoOptimizer** y gestión de perfiles de
+  rendimiento/compatibilidad según el hardware detectado.
+- **Fase 5 (v0.5, esta versión):** controles táctiles virtuales y gestos en
+  pantalla (**HUD Overlay**) optimizados para RTS, con ratón virtual, recuadro
+  de selección, zoom por pellizco y perfiles de control por juego en Room.
 
 > **No hay runtime de ejecución.** No hay Wine, Box64, DXVK ni ningún motor de
 > traducción, y **tampoco se ejecuta ningún binario de Windows**: el escáner y
 > el inspector de perfiles solo leen nombres, rutas y tamaños de archivo, y el
 > botón "Jugar" informa de que el lanzamiento llega en una fase posterior.
 >
-> **No avanza a la Fase 5.** Los perfiles se calculan y se guardan, pero no se
-> aplican a ninguna sesión porque no hay motor al que aplicarlos.
+> **No avanza a la Fase 6.** Los gestos se reconocen y se registran, pero no se
+> inyectan en ningún juego: no hay motor al que enviarlos.
 
 ## Requisitos cumplidos
 
@@ -39,6 +42,14 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
 | Nombres técnicos, nunca comerciales | ✔ "4. Rendimiento RTS / DirectX 9", "8. CPU Focus / Box64"… |
 | `AutoOptimizer` que recomienda el perfil según hardware (GPU Mali/Adreno, RAM, CPU) y juego | ✔ `AutoOptimizer.recommend()` |
 | Detalle del juego: perfil recomendado + cambio manual persistido en Room | ✔ `PerformanceProfileCard` + columna `profileId` |
+| Emulación de ratón virtual: un toque / arrastre = mover cursor + clic izquierdo | ✔ `TouchGestureInterpreter` |
+| Dos dedos o pulsación larga = clic derecho | ✔ `InputEvent.SecondaryClick` |
+| Recuadro de selección ("drag-box") arrastrando | ✔ `InputEvent.SelectionRect` + dibujo en vivo |
+| Pellizcar = zoom, dos dedos en paralelo = paneo de cámara | ✔ `CameraZoom` / `CameraPan` |
+| Capa flotante con transparencia ajustable | ✔ `TouchControlsOverlay` + `overlayOpacity` |
+| Acceso rápido RTS: `Ctrl`+`1/2/3`, `Shift`, `A` (ataque), `Espacio`, D-Pad y joystick opcional | ✔ `ControlAction` |
+| Entidad Room con posición, tamaño y configuración de los botones por juego | ✔ `control_profiles` + `control_buttons` (v3) |
+| Editor gráfico para mover y redimensionar los botones | ✔ `ControlEditorScreen` |
 | Compilación limpia e independiente del motor de emulación | ✔ `./gradlew assembleDebug` sin avisos |
 | Arquitectura limpia y modular | ✔ |
 
@@ -72,9 +83,19 @@ com.nexora.android/
 │   │   └── GameDetailScreen.kt # detalle del juego (pura)
 │   ├── scanner/GameScannerViewModel.kt
 │   ├── components/             # NexoraCard, GameCard, GameIcon, ScanProgressCard,
-│   │                           # StorageAccessCard, PerformanceProfileCard
+│   │                           # StorageAccessCard, PerformanceProfileCard,
+│   │                           # TouchControlsOverlay, HudControls
 │   ├── util/Format.kt          # formateo de tamaños y fechas
 │   └── theme/{Color,Theme,Type}.kt
+├── control/                    # HUD táctil (Fase 5)
+│   ├── model/
+│   │   ├── ControlAction.kt    # Ctrl+1/2/3, Shift, A, Espacio, D-Pad, Joystick
+│   │   └── ControlLayout.kt    # botón + disposición + transparencia
+│   ├── data/local/
+│   │   ├── ControlProfileEntity.kt  # ajustes del HUD por juego + mapeo
+│   │   ├── ControlButtonEntity.kt   # posición/tamaño/visibilidad por botón
+│   │   └── ControlLayoutDao.kt      # Flows de perfil y de botones
+│   └── repository/ControlLayoutRepository.kt
 ├── game/
 │   ├── model/
 │   │   ├── Game.kt             # Game + GameSource + GameLibraryState
@@ -82,7 +103,7 @@ com.nexora.android/
 │   ├── data/local/
 │   │   ├── GameEntity.kt       # entidad Room + mapeo a dominio
 │   │   ├── GameDao.kt          # consultas y Flow sobre la tabla
-│   │   └── NexoraDatabase.kt   # RoomDatabase v2 + migración 1→2 (singleton)
+│   │   └── NexoraDatabase.kt   # RoomDatabase v3 + migraciones 1→2→3 (singleton)
 │   ├── scan/
 │   │   ├── GameScanner.kt      # recorrido SAF y por ruta de filesystem
 │   │   ├── ExecutableFilter.kt # heurísticas .exe (puras, sin Android)
@@ -97,6 +118,12 @@ com.nexora.android/
 │   ├── DeviceInfoProvider.kt   # lectura desde Build y ActivityManager
 │   ├── GpuVendor.kt            # Mali / Adreno / PowerVR / Tegra / Intel
 │   ├── DeviceTier.kt           # gama baja / media / alta
+│   ├── input/                  # motor de gestos táctiles (Fase 5, Kotlin puro)
+│   │   ├── Vec2.kt             # punto/vector en píxeles
+│   │   ├── VirtualKey.kt       # códigos de tecla virtual de Win32 + KeyStroke
+│   │   ├── InputEvent.kt       # contrato gesto -> runtime
+│   │   ├── GestureConfig.kt    # umbrales: slop, pulsación larga, zoom…
+│   │   └── TouchGestureInterpreter.kt  # máquina de estados de los gestos
 │   └── profile/
 │       ├── PerformanceProfile.kt   # 10 perfiles + parámetros
 │       ├── GameProfileHints.kt     # pistas del juego (API gráfica, género)
@@ -132,6 +159,70 @@ vez de heredar un perfil que nadie eligió, y no se toca ninguna fila existente.
 Se guarda el **identificador** del perfil (`rts_performance`), nunca su ordinal:
 así se pueden añadir perfiles sin reinterpretar datos guardados, y un `id`
 desconocido degrada a automático en vez de romper la pantalla.
+
+La Fase 5 sube el esquema a **v3** con otra migración aditiva, esta vez de dos
+tablas nuevas (`control_profiles` y `control_buttons`): la biblioteca, los
+iconos y los perfiles de la Fase 4 no se tocan.
+
+### `engine/input/` y `control/` — el HUD táctil (Fase 5)
+
+La pantalla táctil no es un ratón, así que hay que traducirla. El reparto:
+
+- **`TouchGestureInterpreter`** (Kotlin puro) convierte punteros en
+  [InputEvent]. Es una máquina de estados: recibe `down`/`move`/`up` con posición
+  y marca de tiempo, y devuelve lo que eso significa.
+
+| Gesto | Evento que produce |
+|---|---|
+| Toque corto con un dedo | `CursorMove` + `PrimaryClick` |
+| Arrastre con un dedo | recuadro en vivo; `SelectionRect` al soltar |
+| Pulsación larga (un dedo quieto) | `SecondaryClick` |
+| Toque con dos dedos | `SecondaryClick` en el centro de los dos |
+| Pellizcar (dos dedos se separan) | `CameraZoom` incrementales |
+| Dos dedos en paralelo | `CameraPan` |
+
+Detalles que decidí y por qué:
+
+- **El recuadro se dibuja en vivo y se emite al soltar.** El intérprete expone
+  `selectionBox` para que la UI lo pinte mientras el dedo se mueve; el evento
+  llega cuando el gesto termina, que es cuando una selección tiene sentido.
+- **Dos dedos cancelan el recuadro.** Un segundo dedo nunca es "seleccionar más":
+  es clic derecho, zoom o paneo.
+- **Al levantar uno de dos dedos, el que queda se reancla.** Si no, soltar el
+  segundo dispararía un clic izquierdo que nadie pidió.
+- **El tercer dedo se ignora.** Dos bastan para todos los gestos y seguir más
+  punteros solo añade casos imposibles de depurar.
+- **Los umbrales están en `GestureConfig`.** Un panel grande necesita más
+  tolerancia al arrastre que uno pequeño, y hay juegos (los que ya traen selección
+  táctil) en los que el recuadro estorba: `dragBoxEnabled` lo desactiva y el
+  arrastre con un dedo vuelve a ser solo mover el cursor.
+
+- **`ControlAction`** define los botones: `Ctrl + 1/2/3` (grupos de control),
+  `Shift` (modificadora, en modo interruptor), `A` (ataque en movimiento),
+  `Espacio` (ir al evento), **D-Pad** y **joystick virtual** (opcional, oculto por
+  defecto). Cada uno lleva la pulsación que enviará al juego: los códigos son de
+  tecla virtual de Win32, así que el día que exista la inyección no hay que
+  traducir nada.
+- **`HudControl` / `ControlLayout`** guardan posición (centro en fracciones
+  0..1), tamaño (fracción del lado menor), visibilidad, transparencia de la capa
+  y el ajuste del recuadro. Normalizado: la misma disposición se ve igual en una
+  tableta apaisada y en un móvil vertical, y se guarda en SQLite sin densidades
+  ni orientación.
+
+Persistencia, dos tablas:
+
+| Tabla | Clave | Contenido |
+|---|---|---|
+| `control_profiles` | `gameId` | transparencia, recuadro de selección, `updatedAt` |
+| `control_buttons` | `gameId` + `actionId` | `centerX`, `centerY`, `size`, `visible` |
+
+Separarlas evita reescribir ocho filas cuando el usuario solo cambia la
+transparencia. Un juego sin filas no es un error: el repositorio devuelve la
+disposición de fábrica, y una acción desconocida en la tabla se ignora al leer.
+
+Los dedos que caen **sobre un botón** no llegan al intérprete: el overlay
+comprueba los rectángulos ocupados antes de entregar el puntero. Pulsar
+"Ctrl + 1" no mueve además el cursor ni hace clic en el mapa.
 
 Decisiones que importan:
 
@@ -372,11 +463,59 @@ RENDIMIENTO
 │ [ CAMBIAR PERFIL ]                     │
 └────────────────────────────────────────┘
 
+CONTROLES TÁCTILES
+┌────────────────────────────────────────┐
+│ 🎮 Capa de controles (HUD)              │
+│ 4 de 8 controles visibles               │
+│ [ EDITAR CONTROLES ]                    │
+└────────────────────────────────────────┘
+
 OPCIONES INICIALES
 [ ▶ JUGAR                    ]   <- runtime no integrado todavía
 [ 🎨 CAMBIAR ÍCONO           ]
 [ ⧉ COPIAR RUTA DEL EJECUTABLE]
    Quitar de la biblioteca       <- con confirmación
+```
+
+Y desde la tarjeta de controles, el editor:
+
+```
+← Editor de controles              Hollow Knight
+
+MODO                    [ EDITAR | PROBAR ]
+┌──────────────────────────────────────────┐
+│  ⌜ selección en vivo ⌟                   │
+│                             [Ctrl+2]     │
+│                                          │
+│            ✛ cursor virtual              │
+│                                   [A]    │
+│                                  [Esp]   │
+│  ╭─────╮                                 │
+│  │  ↑  │                                 │
+│  │← ↓ →│                                 │
+│  ╰─────╯                                 │
+└──────────────────────────────────────────┘
+Ctrl+1 Ctrl+2 Ctrl+3 Shift A Espacio D-Pad Joystick
+        <- tocar una ficha la selecciona
+
+CONTROL SELECCIONADO: Espacio
+Posición X        ──────●────  0,82
+Posición Y        ───────●───  0,74
+Tamaño            ────●──────  0,13
+Visible           [ ON  ]
+[ OCULTAR CONTROL ]
+
+OPACIDAD DE LA CAPA  ───────●─  78 %
+Recuadro de selección [ ON  ]
+[ GUARDAR ]  [ RESTABLECER ]
+
+REGISTRO DE GESTOS
+Cursor a (412, 233)
+Clic izquierdo en (412, 233)
+Recuadro (180, 90) → (520, 420)
+Clic derecho en (350, 255)
+Zoom ×1,60 en (360, 240)
+Cámara +18, -6
 ```
 
 La barra de progreso del escaneo es **determinada**: mide la fracción del
@@ -446,13 +585,14 @@ En cada push a `main`, GitHub Actions compila y publica el artefacto
 ```
 ./gradlew assembleDebug      -> BUILD SUCCESSFUL (sin warnings)
 ./gradlew assembleRelease    -> BUILD SUCCESSFUL (sin warnings)
-./gradlew testDebugUnitTest  -> 36 tests, 0 failures
+./gradlew testDebugUnitTest  -> 55 tests, 0 failures
 ```
 
 Reparto de pruebas: 9 del escáner (Fase 2), 8 del mapeo de la entidad + perfil
 (Fase 3/4), 9 del AutoOptimizer y 10 del catálogo de perfiles y la detección de
-pistas (Fase 4). Todas JVM puras: ni Robolectric ni instrumentación, porque
-ninguna de estas clases toca Android.
+pistas (Fase 4), 11 del motor de gestos y 8 del layout de controles (Fase 5).
+Todas JVM puras: ni Robolectric ni instrumentación, porque ninguna de estas
+clases toca Android.
 
 Auditoría de librerías de escritorio, en dos niveles:
 
@@ -488,9 +628,47 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
 - **Los perfiles no se aplican a nada todavía.** Se calculan, se muestran y se
   guardan; el runtime que los consumirá llega en una fase posterior.
 
-## Fase 5 (fuera de esta versión)
+## Decisiones de la Fase 5
+
+- **El motor de gestos es una máquina de estados sin Android ni Compose.**
+  `TouchGestureInterpreter` recibe `down`/`move`/`up` con posición y marca de
+  tiempo y devuelve eventos: por eso se prueba en JVM (11 pruebas) y por eso la
+  misma clase sirve en modo juego y en modo edición.
+- **El recuadro se dibuja en vivo y se emite al soltar.** La UI lee
+  `selectionBox` en cada frame para pintar la caja, pero el
+  `InputEvent.SelectionRect` sale una sola vez, con el rectángulo final: el
+  runtime recibirá un único "selecciona esto", no cien actualizaciones.
+- **Un movimiento de dos dedos se descompone** en la parte que arrastra (los dos
+  van a la vez) y la parte que separa (se abren o se cierran). Gana la que antes
+  supera su umbral y, si empatan, se interpreta como zoom: así un paneo real no
+  se convierte en un pellizco cuando los dedos llegan con unos pocos
+  milisegundos de diferencia.
+- **Los dedos que empiezan sobre un botón no existen para el motor.** La capa
+  calcula los rectángulos de los controles en píxeles y se los pasa al
+  intérprete, que ignora los punteros nacidos dentro de uno: sin eso, pulsar
+  `Ctrl+1` además movería el cursor o abriría un recuadro.
+- **Dos dedos cancelan el recuadro y el último dedo no cierra nada.** Al
+  levantar uno de dos, el que queda se reancla y se marca como ya movido; el
+  clic izquierdo queda suprimido hasta que la pantalla quede vacía. Es lo que
+  evita los clics fantasma al terminar un pellizco.
+- **Coordenadas normalizadas.** El centro del botón va de 0 a 1 y su tamaño es
+  una fracción del lado corto, así que el layout sobrevive a un cambio de
+  resolución, de orientación o de dispositivo sin recalcular nada.
+- **Dos tablas, no una.** El perfil (`control_profiles`) guarda la opacidad y el
+  interruptor del recuadro; los botones (`control_buttons`) guardan posición,
+  tamaño y visibilidad. Cambiar la opacidad no reescribe ocho filas.
+- **Los controles se mueven en memoria y se guardan al salir.** Arrastrar un
+  botón actualiza el estado, no la base de datos: el editor escribe una sola vez
+  al pulsar Guardar o al volver.
+- **Todavía no hay a quién enviar los eventos.** Los eventos se describen en el
+  registro del editor (`Cursor a (x, y)`, `Clic izquierdo`, `Zoom ×1,60`, …) pero
+  no llegan a ningún runtime: el puente real con el proceso de Windows es trabajo
+  de la fase que integre la ejecución.
+
+## Fase 6 (fuera de esta versión)
 
 - Integración del runtime de ejecución (y con ella el lanzamiento real de
-  "Jugar" y la aplicación efectiva de los perfiles).
+  "Jugar", la aplicación efectiva de los perfiles y el envío de los `InputEvent`
+  al proceso de Windows).
 - Alta manual de juegos.
 - Pantalla de ajustes persistidos (DataStore).

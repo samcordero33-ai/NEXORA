@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.nexora.android.R
+import com.nexora.android.control.model.ControlLayout
 import com.nexora.android.engine.DeviceInfo
 import com.nexora.android.engine.GpuVendor
 import com.nexora.android.engine.profile.AutoOptimizer
@@ -83,6 +85,9 @@ import com.nexora.android.ui.util.formatDateTime
  *   Personalizado" en este dispositivo.
  * @param onSelectProfile Fija el perfil del juego (o `null` para el automático);
  *   la elección se persiste en Room.
+ * @param controlLayout Disposición del HUD táctil de este juego (Fase 5);
+ *   `null` mientras se carga desde Room.
+ * @param onEditControls Abre el editor de la disposición táctil.
  * @param onPlay "Jugar". La fase del runtime aún no está integrada: la acción
  *   avisa al usuario sin lanzar nada.
  * @param onChangeIcon Cambia el icono predeterminado; se persiste en Room.
@@ -97,6 +102,8 @@ fun GameDetailScreen(
     profileRecommendation: ProfileRecommendation?,
     customParameters: PerformanceParameters?,
     onSelectProfile: (PerformanceProfile?) -> Unit,
+    controlLayout: ControlLayout?,
+    onEditControls: () -> Unit,
     onPlay: () -> Unit,
     onChangeIcon: () -> Unit,
     onCopyPath: () -> Unit,
@@ -197,6 +204,14 @@ fun GameDetailScreen(
             selectedProfile = game.profile,
             customParameters = customParameters,
             onSelectProfile = onSelectProfile,
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+        SectionHeader(title = stringResource(R.string.section_controls))
+        Spacer(modifier = Modifier.height(10.dp))
+        TouchControlsCard(
+            layout = controlLayout,
+            onEditControls = onEditControls,
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -330,6 +345,94 @@ fun GameDetailScreen(
                     Text(text = stringResource(R.string.detail_remove_cancel))
                 }
             },
+        )
+    }
+}
+
+/**
+ * Resumen del HUD táctil de este juego.
+ *
+ * Muestra lo que el usuario ha configurado (transparencia, botones activos y
+ * recuadro de selección) y abre el editor. La disposición se guarda por juego:
+ * un RTS y un plataformas no se juegan con la misma mano.
+ */
+@Composable
+private fun TouchControlsCard(
+    layout: ControlLayout?,
+    onEditControls: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    NexoraCard(modifier = modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.SportsEsports,
+                contentDescription = null,
+                tint = NexoraAccent,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text = stringResource(R.string.controls_card_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = NexoraTextPrimary,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = stringResource(R.string.controls_card_summary),
+            style = MaterialTheme.typography.bodySmall,
+            color = NexoraTextSecondary,
+        )
+
+        val effective = layout ?: ControlLayout.defaults("")
+        Spacer(modifier = Modifier.height(10.dp))
+        DetailRow(
+            label = stringResource(R.string.controls_label_visible),
+            value = stringResource(
+                R.string.controls_visible_value,
+                effective.visibleCount,
+                effective.controls.size,
+            ),
+        )
+        DetailRow(
+            label = stringResource(R.string.controls_label_dragbox),
+            value = stringResource(
+                if (effective.dragBoxEnabled) {
+                    R.string.profile_value_yes
+                } else {
+                    R.string.profile_value_no
+                },
+            ),
+        )
+        DetailRow(
+            label = stringResource(R.string.controls_card_opacity),
+            value = stringResource(
+                R.string.controls_percent_value,
+                (effective.overlayOpacity * 100).toInt(),
+            ),
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onEditControls,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp),
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.controls_action_edit),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.controls_runtime_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = NexoraTextSecondary,
         )
     }
 }
@@ -469,6 +572,8 @@ private fun GameDetailScreenPreview() {
                 hints = hints,
             ),
             onSelectProfile = {},
+            controlLayout = ControlLayout.defaults(gameId = "preview"),
+            onEditControls = {},
             onPlay = {},
             onChangeIcon = {},
             onCopyPath = {},

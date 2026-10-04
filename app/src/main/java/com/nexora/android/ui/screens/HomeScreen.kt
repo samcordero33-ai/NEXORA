@@ -50,6 +50,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nexora.android.R
+import com.nexora.android.control.model.ControlLayout
 import com.nexora.android.engine.DeviceInfo
 import com.nexora.android.engine.DeviceTier
 import com.nexora.android.engine.GpuVendor
@@ -135,15 +136,39 @@ fun NexoraHomeRoute(
         uiState.selectedGameId?.let { id -> uiState.games.firstOrNull { it.id == id } }
     }
 
-    BackHandler(enabled = selectedGame != null) { viewModel.closeGameDetail() }
+    val editingControls = uiState.controlEditorGameId != null && selectedGame != null
+    val controlLayout = uiState.controlLayout ?: ControlLayout.defaults(
+        gameId = selectedGame?.id.orEmpty(),
+    )
 
-    if (selectedGame != null) {
+    BackHandler(enabled = editingControls) { viewModel.closeControlEditor() }
+    BackHandler(enabled = selectedGame != null && !editingControls) {
+        viewModel.closeGameDetail()
+    }
+
+    if (editingControls && selectedGame != null) {
+        ControlEditorScreen(
+            gameName = selectedGame.name,
+            layout = controlLayout,
+            onBack = viewModel::closeControlEditor,
+            onSave = viewModel::saveControlLayout,
+            onReset = viewModel::resetControlLayout,
+            onOpacityChange = viewModel::setOverlayOpacity,
+            onDragBoxChange = viewModel::setDragBoxEnabled,
+            onMoveControl = { action, x, y -> viewModel.moveControl(action, x, y) },
+            onResizeControl = viewModel::resizeControl,
+            onToggleVisibility = viewModel::toggleControlVisibility,
+            modifier = modifier,
+        )
+    } else if (selectedGame != null) {
         GameDetailScreen(
             game = selectedGame,
             onBack = viewModel::closeGameDetail,
             profileRecommendation = uiState.profileRecommendation,
             customParameters = uiState.customParameters,
             onSelectProfile = { profile -> viewModel.selectProfile(selectedGame.id, profile) },
+            controlLayout = uiState.controlLayout,
+            onEditControls = { viewModel.openControlEditor(selectedGame.id) },
             onPlay = { viewModel.requestPlay(selectedGame) },
             onChangeIcon = { viewModel.cycleGameIcon(selectedGame.id) },
             onCopyPath = viewModel::notifyPathCopied,
