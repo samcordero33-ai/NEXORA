@@ -9,6 +9,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nexora.android.control.data.local.ControlButtonEntity
 import com.nexora.android.control.data.local.ControlLayoutDao
 import com.nexora.android.control.data.local.ControlProfileEntity
+import com.nexora.android.runtime.data.local.RuntimeConfigDao
+import com.nexora.android.runtime.data.local.RuntimeConfigEntity
 
 /**
  * Base de datos local de NEXORA.
@@ -19,10 +21,14 @@ import com.nexora.android.control.data.local.ControlProfileEntity
  * Versión 3: se añaden `control_profiles` y `control_buttons`, la disposición
  * del HUD táctil de cada juego (Fase 5).
  *
+ * Versión 4: se añade `runtime_configs`, los ajustes del entorno de ejecución
+ * (DXVK, Box64, Mesa, WINEPREFIX) por juego (Fase 6).
+ *
  * Las migraciones son **manuales** y aditivas. La de la Fase 4 añade una columna
- * nullable (las filas ya guardadas siguen en automático) y la de la Fase 5 crea
- * dos tablas nuevas sin tocar `games`, así que un juego escaneado con la versión
- * anterior conserva su biblioteca, su icono y su perfil.
+ * nullable (las filas ya guardadas siguen en automático), la de la Fase 5
+ * crea dos tablas nuevas sin tocar `games` y la de la Fase 6 añade una tabla
+ * más sin tocar las anteriores: un juego escaneado con la versión 3 conserva
+ * su biblioteca, su icono, su perfil y su HUD.
  *
  * Es intencionadamente pequeña: aquí no se guarda nada del runtime de
  * ejecución, solo la biblioteca que el usuario ha detectado y cómo quiere
@@ -34,8 +40,9 @@ import com.nexora.android.control.data.local.ControlProfileEntity
         GameEntity::class,
         ControlProfileEntity::class,
         ControlButtonEntity::class,
+        RuntimeConfigEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class NexoraDatabase : RoomDatabase() {
@@ -43,6 +50,8 @@ abstract class NexoraDatabase : RoomDatabase() {
     abstract fun gameDao(): GameDao
 
     abstract fun controlLayoutDao(): ControlLayoutDao
+
+    abstract fun runtimeConfigDao(): RuntimeConfigDao
 
     companion object {
 
@@ -81,6 +90,26 @@ abstract class NexoraDatabase : RoomDatabase() {
             }
         }
 
+        /** Fase 6: tabla del entorno de ejecución. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `runtime_configs` (" +
+                        "`gameId` TEXT NOT NULL, " +
+                        "`dxvkHud` TEXT NOT NULL, " +
+                        "`box64Log` TEXT NOT NULL, " +
+                        "`box64Dynarec` TEXT NOT NULL, " +
+                        "`galliumDriver` TEXT NOT NULL, " +
+                        "`mesaVkWinsys` TEXT NOT NULL, " +
+                        "`wineDebug` TEXT NOT NULL, " +
+                        "`winetricksVerbs` TEXT NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`gameId`)" +
+                        ")",
+                )
+            }
+        }
+
         @Volatile
         private var instance: NexoraDatabase? = null
 
@@ -98,7 +127,7 @@ abstract class NexoraDatabase : RoomDatabase() {
                     NexoraDatabase::class.java,
                     DATABASE_NAME,
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { created -> instance = created }
             }

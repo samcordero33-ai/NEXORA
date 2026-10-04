@@ -19,7 +19,7 @@
     <!-- Acciones de la biblioteca -->
     <string name="action_play">Jugar</string>
     <string name="action_game_settings">Ajustes del juego</string>
-    <string name="play_not_available">"%1$s" ya está en tu biblioteca, pero el runtime de ejecución todavía no está integrado: el lanzamiento llega en una fase posterior.</string>
+    <string name="play_not_available">"El runtime de ejecución todavía no está integrado."</string>
 
     <!-- Acciones de escaneo -->
     <string name="action_add_game">Añadir juego</string>
@@ -119,7 +119,7 @@
     <string name="controls_event_log">Últimos gestos reconocidos</string>
     <string name="controls_event_log_empty">Toca, arrastra o pellizca sobre el panel: los gestos aparecen aquí.</string>
     <string name="controls_gesture_tap">Un toque: mover cursor y clic izquierdo</string>
-    <string name="controls_gesture_secondary">Dos dedos o pulsación larga: clic derecho</string>
+    <string name="controls_gesture_secondary">Dos dedos o una pulsación larga: clic derecho</string>
     <string name="controls_gesture_box">Arrastre con un dedo: recuadro de selección</string>
     <string name="controls_gesture_zoom">Pellizcar: zoom de cámara</string>
 
@@ -155,4 +155,28 @@
     <string name="device_info_available_memory">Memoria disponible</string>
     <string name="device_info_unknown">Desconocido</string>
     <string name="runtime_not_integrated">Runtime de ejecución no integrado todavía (fases posteriores)</string>
+
+    <!-- Runtime de ejecución (Fase 6) -->
+    <string name="runtime_screen_title">Ejecutando %1$s</string>
+    <string name="runtime_status_idle">Inactivo</string>
+    <string name="runtime_status_preparing">Preparando</string>
+    <string name="runtime_status_running">En ejecución</string>
+    <string name="runtime_status_paused">Pausado</string>
+    <string name="runtime_status_stopped">Detenido</string>
+    <string name="runtime_status_failed">Error</string>
+    <string name="runtime_env_title">Entorno del motor</string>
+    <string name="runtime_env_adjust_title">Ajustes del entorno</string>
+    <string name="runtime_warnings_title">Avisos del compositor</string>
+    <string name="runtime_monitor_title">Monitor técnico</string>
+    <string name="runtime_log_title">Salida del motor</string>
+    <string name="runtime_action_prepare">Preparar entorno</string>
+    <string name="runtime_action_launch">Lanzar</string>
+    <string name="runtime_action_pause">Pausar</string>
+    <string name="runtime_action_resume">Reanudar</string>
+    <string name="runtime_action_kill">Cerrar</string>
+    <string name="runtime_toggle_hud">HUD táctil</string>
+    <string name="runtime_toggle_monitor">Monitor</string>
+    <string name="runtime_settings_saved">Ajustes del entorno guardados</string>
+    <string name="runtime_settings_reset">Ajustes del entorno restablecidos</string>
+    <string name="runtime_binary_missing">No se encontró un binario capaz de ejecutar «%1$s».</string>
 </resources>

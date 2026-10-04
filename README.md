@@ -1,4 +1,4 @@
-# NEXORA v0.5 — Fase 5
+# NEXORA v0.6 — Fase 6
 
 **Windows Gaming Runtime for Android.**
 
@@ -12,17 +12,27 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   tarjetas gaming y pantalla de detalle del juego.
 - **Fase 4 (v0.4):** sistema **AutoOptimizer** y gestión de perfiles de
   rendimiento/compatibilidad según el hardware detectado.
-- **Fase 5 (v0.5, esta versión):** controles táctiles virtuales y gestos en
-  pantalla (**HUD Overlay**) optimizados para RTS, con ratón virtual, recuadro
-  de selección, zoom por pellizco y perfiles de control por juego en Room.
+- **Fase 5 (v0.5):** controles táctiles virtuales y gestos en pantalla
+  (**HUD Overlay**) optimizados para RTS, con ratón virtual, recuadro de
+  selección, zoom por pellizco y perfiles de control por juego en Room.
+- **Fase 6 (v0.6, esta versión):** capa de **integración y orquestación** del
+  motor de traducción. **Gestor de entorno y WINEPREFIX** con variables
+  configurables (`DXVK_HUD`, `BOX64_LOG`, `BOX64_DYNAREC`, `GALLIUM_DRIVER`,
+  `MESA_VK_WINSYS`, `WINEDEBUG`, `WINETRICKS`), **Engine Runner** con ciclo de
+  vida completo (Preparar → Lanzar → Pausar → Reanudar → Kill) y captura de
+  stdout/stderr en vivo, y **GameRunnerScreen** con HUD táctil integrado y
+  monitor técnico flotante opcional (FPS, RAM, temperatura estimada).
 
-> **No hay runtime de ejecución.** No hay Wine, Box64, DXVK ni ningún motor de
-> traducción, y **tampoco se ejecuta ningún binario de Windows**: el escáner y
-> el inspector de perfiles solo leen nombres, rutas y tamaños de archivo, y el
-> botón "Jugar" informa de que el lanzamiento llega en una fase posterior.
+> **El runtime sigue sin traer un motor real.** No hay Wine, Box64, FEX-Emu,
+> DXVK ni drivers Mesa/Turnip empaquetados, y **no se ejecuta ningún binario
+> de Windows**: el launcher (`AndroidBinaryResolver`) devuelve siempre `null`
+> y el motor falla de forma explícita con `BinaryNotInstalledException`. La
+> UI muestra la causa y los pasos para integrar el conector JNI/NDK en una
+> fase posterior.
 >
-> **No avanza a la Fase 6.** Los gestos se reconocen y se registran, pero no se
-> inyectan en ningún juego: no hay motor al que enviarlos.
+> **No avanza a la Fase 7.** El envío real de los `InputEvent` al proceso
+> del juego, el empaquetado de los binarios y la capa JNI/NDK son trabajo
+> de una versión posterior.
 
 ## Requisitos cumplidos
 
@@ -52,6 +62,16 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
 | Editor gráfico para mover y redimensionar los botones | ✔ `ControlEditorScreen` |
 | Compilación limpia e independiente del motor de emulación | ✔ `./gradlew assembleDebug` sin avisos |
 | Arquitectura limpia y modular | ✔ |
+| **Gestor de entorno y `WINEPREFIX` por juego (Fase 6)** | ✔ `WinePrefix` + `RuntimeConfigEntity`/`runtime_configs` |
+| Variables configurables: `DXVK_HUD`, `BOX64_LOG`, `BOX64_DYNAREC`, `GALLIUM_DRIVER`, `MESA_VK_WINSYS`, `WINEDEBUG`, `WINETRICKS` | ✔ `EnvironmentSettings` + `EnvironmentComposer.compose()` (función pura) |
+| **Engine Runner** con ciclo de vida Preparar → Lanzar → Pausar → Reanudar → Kill | ✔ `RuntimeEngine` (8 pruebas) |
+| Captura de `stdout`/`stderr` en vivo (canal acotado, auto-scroll inteligente) | ✔ `LogStreamer` + `RuntimeLogPanel` |
+| **GameRunnerScreen** que prepara el entorno antes del render | ✔ `GameRunnerScreen` + `RuntimeViewModel` |
+| Integración del HUD táctil de la Fase 5 sobre la vista de ejecución | ✔ `TouchControlsOverlay` en `GameRunnerScreen` |
+| Monitor flotante técnico (FPS, RAM, temperatura estimada CPU/GPU) | ✔ `RuntimeMonitorCard` + `AndroidRuntimeMonitorSource` (`Choreographer` real, temperatura **estimada**) |
+| Lanzador honesto: falla con `BinaryNotInstalledException` cuando no hay motor | ✔ `AndroidBinaryResolver` siempre devuelve `null` |
+| Migración Room aditiva 3 → 4 sin alterar datos previos | ✔ `MIGRATION_3_4` (nueva tabla, sin `ALTER`) |
+| Navegación por estado (sin Navigation Compose) y `BackHandler` encadenado | ✔ `runningGameId` en `ScannerUiState` |
 
 ## Stack
 
@@ -295,6 +315,70 @@ Así se ve el caso del enunciado (RTS + DirectX 9 sobre Mali de gama media):
 **Automático (AutoOptimizer)**, marcando cuál es el recomendado. La elección se
 escribe en Room (`profileId`) y sobrevive al reinicio; el chip de la tarjeta
 distingue `AUTOMÁTICO` de `MANUAL`.
+
+### `runtime/` — orquestador del motor (Fase 6)
+
+La capa de integración es la pieza que conecta los perfiles (Fase 4) y los
+controles (Fase 5) con un eventual binario de Wine/Box64/DXVK. Hoy no trae
+los binarios: está diseñada como un **conjunto de `interface`s + una
+implementación honesta** que falla de forma visible cuando el conector JNI/NDK
+no resuelve nada.
+
+- **`runtime/env/`** — `EnvironmentVariables.kt` declara los enums
+  (`DxvkHudPreset`, `Box64LogLevel`, `Box64DynarecSize`, `GalliumDriver`,
+  `MesaVkWinsys`) con su `wireValue` (el string que va a la variable de
+  entorno) y su `label` (lo que ve el usuario). `WinePrefix.kt` es el
+  envoltorio del directorio `WINEPREFIX` por juego (idempotente,
+  `underFilesDir(filesDir, gameId)`); `EnvironmentComposer.kt` es la
+  **función pura** que, dados los parámetros del perfil y los flags del
+  usuario, devuelve un `ComposedEnvironment(environment, warnings, command,
+  winePrefixPath)`. Es 100 % testeable en JVM: 13 pruebas.
+- **`runtime/engine/`** — `ProcessLauncher`/`ProcessHandle` son
+  abstracciones. `AndroidProcessLauncher` usa `ProcessBuilder` con un
+  `BinaryResolver` inyectable; por defecto
+  (`AndroidBinaryResolver`) devuelve `null`, lo que dispara
+  `BinaryNotInstalledException`. `LogStreamer` convierte stdout/stderr en
+  un `Flow<RuntimeLog>` con `Channel` de 512 elementos; `InMemoryLogSink`
+  sirve para tests. `NoopProcessLauncher`/`NoopProcessHandle` simulan un
+  proceso con líneas prefijadas, sin tocar el sistema. `RuntimeEngine` es
+  la máquina de estados (`Idle → Preparing → Running ⇄ Paused → Stopped /
+  Failed`) con `prepare`, `launch`, `pause`, `resume`, `kill`, `logs()`.
+- **`runtime/model/`** — `RuntimeStatus` (sealed: `Idle`, `Preparing`,
+  `Running`, `Paused`, `Stopped`, `Failed`) y `RuntimeLog` (`LogStream`
+  con tres canales: STDOUT, STDERR, SYSTEM).
+- **`runtime/data/local/`** — `RuntimeConfigEntity`/`RuntimeConfigDao`/
+  `RuntimeConfigRepository` persisten los `EnvironmentSettings` por juego
+  en una tabla `runtime_configs` (migración aditiva 3 → 4, sin alterar
+  las anteriores).
+- **`runtime/monitor/`** — `RuntimeMonitorSource` (interfaz), un
+  `FakeRuntimeMonitorSource` para tests/previews y
+  `AndroidRuntimeMonitorSource` para producción. FPS se mide con
+  `Choreographer.FrameCallback` sobre una ventana de 30; RAM se lee de
+  `ActivityManager.MemoryInfo` + `Debug.MemoryInfo`; la temperatura de
+  CPU/GPU es una **estimación** marcada como tal en la UI.
+- **`runtime/repository/`** — Fachada sobre el DAO con
+  `observeSettings(gameId): Flow<EnvironmentSettings>` (devuelve el
+  `DEFAULT` cuando no hay fila) y `save`/`reset`.
+
+### `ui/runner/` y `ui/screens/GameRunnerScreen.kt` — pantalla de ejecución (Fase 6)
+
+`RuntimeViewModel` une la biblioteca (Fase 3), los perfiles (Fase 4), los
+controles (Fase 5) y el orquestador (Fase 6) en una única `RuntimeUiState`
+inmutable. Carga el juego, observa los ajustes del entorno, prepara el
+entorno (`prepareEnvironment`), lanza (`launch`), pausa, resume, mata y
+muestra los logs (auto-scroll solo cuando el usuario ya estaba abajo;
+auto-scroll desactivado cuando se desplaza hacia arriba). El monitor
+técnico (`RuntimeMonitorCard`) y el panel de logs (`RuntimeLogPanel` +
+`RuntimeLogSummary`) son componentes reutilizables.
+
+`GameRunnerScreen` apila, en orden: barra superior con **chip de estado**,
+`BoxWithConstraints` negra como superficie de juego, `TouchControlsOverlay`
+(Fase 5) por encima y la `RuntimeMonitorCard` flotante cuando se activa,
+chips para HUD/Monitor, botones **Preparar / Lanzar / Pausar / Reanudar /
+Forzar cierre** deshabilitados según estado, tarjeta de advertencias,
+resumen del entorno, tarjeta de **ajustes editables** con `Save`/`Reset`, y
+panel de logs. La navegación se hace con un único campo `runningGameId` en
+`ScannerUiState` y `BackHandler` encadenado.
 
 ### `engine/profile/` — AutoOptimizer (Fase 4)
 
@@ -665,10 +749,79 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
   no llegan a ningún runtime: el puente real con el proceso de Windows es trabajo
   de la fase que integre la ejecución.
 
-## Fase 6 (fuera de esta versión)
+## Decisiones de la Fase 6
 
-- Integración del runtime de ejecución (y con ella el lanzamiento real de
-  "Jugar", la aplicación efectiva de los perfiles y el envío de los `InputEvent`
-  al proceso de Windows).
-- Alta manual de juegos.
-- Pantalla de ajustes persistidos (DataStore).
+- **El orquestador es puro-Kotlin y testeable en JVM.** `RuntimeEngine` no
+  importa nada de Android ni de Compose: usa `ProcessLauncher`,
+  `LogStreamer` y `BinaryResolver` como `interface`s, y `NoopProcessLauncher`
+  + `NoopProcessHandle` permiten reproducir cada transición (idle → preparing
+  → running → paused → stopped) sin un `.exe`. El paquete `engine` se
+  prueba sin dispositivo (8 pruebas).
+- **El resolver de binarios es honesto por defecto.** `AndroidBinaryResolver`
+  siempre devuelve `null`, lo que dispara `BinaryNotInstalledException` en
+  el launcher. Es deliberado: en un Android sin root y sin conector NDK, no
+  hay `wine`, `wine64` ni `box64` instalados; mejor fallar visiblemente
+  que fingir éxito. La `fun interface BinaryResolver` deja la puerta
+  abierta a un módulo NDK/JNI que la provea.
+- **Las variables de entorno se calculan con una función pura.**
+  `EnvironmentComposer.compose(gameId, exePath, parameters, profileId,
+  settings, prefixPathFor)` no toca el disco ni arranca procesos: a partir
+  de los parámetros del perfil y de los flags elegidos, devuelve un
+  `ComposedEnvironment(environment, warnings, command, winePrefixPath)`
+  inmutable. Eso permite probar todas las combinaciones (DXVK solo para
+  DX9/10/11, `BOX64_DYNAREC_BIGBLOCK=2` cuando hay ≥6 hilos,
+  `WINEDEBUG` solo si el usuario lo activa, …) en 13 pruebas.
+- **WINEPREFIX vive dentro de `filesDir`, no en `/storage`.** Cada juego
+  tiene su propio prefijo bajo `filesDir/prefixes/<gameId>`. `WinePrefix`
+  es idempotente: `createIfMissing()` solo crea los directorios que faltan
+  y devuelve los recién creados. Sin permisos extra, sin choques entre
+  juegos.
+- **`Paused` es un marcador de UI, no un SIGSTOP.** Android no expone la
+  señal desde `java.lang.Process`, así que `RuntimeEngine.pause()` cambia
+  el `RuntimeStatus` pero **el proceso sigue corriendo**; lo que se
+  detiene es el envío de input y la captura activa de logs. La
+  documentación de `RuntimeStatus.Paused` lo deja explícito para que no se
+  confunda con una suspensión real.
+- **El PID se obtiene por reflexión.** `java.lang.Process.pid()` /
+  `Process.toHandle().pid()` son Java 9+; el runtime de Android no las
+  expone en el stub de la `Process`. `AndroidProcessHandle.pid` las busca
+  por reflexión y devuelve `-1L` si ninguna aparece, así que el código no
+  se rompe cuando cambia el stub.
+- **Logs por canal, no por prioridad.** `LogStreamer` mantiene un
+  `Channel` con buffer (`DEFAULT_CAPACITY = 512`) y un `pump` por flujo
+  (stdout, stderr). El consumidor hace `take(N).toList()` o `collect` y
+  recibe `RuntimeLog(timestampMs, stream, message)` con el sello de canal;
+  la UI colorea stdout, stderr y SYSTEM por separado y descarta lo que
+  no cabe.
+- **El monitor "estima", no lee.** Android no expone sensor térmico de
+  CPU/GPU sin permisos extra, así que `AndroidRuntimeMonitorSource` calcula
+  un valor entre 40 y 90 °C a partir de la presión de RAM, redondeado a
+  múltiplos de 5, y la UI lo marca como `(estimado)`. FPS sí se mide de
+  verdad con un `Choreographer.FrameCallback` sobre una ventana móvil de
+  30 frames.
+- **Navegación por estado, no por Navigation Compose.** La pantalla de
+  ejecución se activa con un único campo `runningGameId` en
+  `ScannerUiState`; el `BackHandler` se encadena (`runner > editor >
+  detalle > biblioteca`). Volver cierra el motor (`RuntimeViewModel.
+  shutdown()` cancela los `Job`, mata el proceso si estaba vivo y libera
+  el monitor) antes de quitar la pantalla, para que no se quede nada
+  colgado.
+- **Migración aditiva 3 → 4.** Solo se añade la tabla `runtime_configs`,
+  sin alterar las anteriores: los datos de las Fases 3-5 sobreviven
+  intactos a la actualización.
+
+## Fase 7 (fuera de esta versión)
+
+- Empaquetado de los binarios de **Wine / Box64 (o FEX-Emu) / DXVK / drivers
+  Mesa-Turnip** y conector **JNI/NDK** que materialice el
+  `BinaryResolver`. La capa actual asume esa pieza como una `fun interface`
+  y falla de forma explícita cuando el resolver devuelve `null`.
+- **Envío real de los `InputEvent`** al proceso del juego (`wine64` recibe
+  punteros sintéticos, DInput/uinput, etc.). Hoy los gestos se reconocen y
+  quedan en memoria: no llegan a ningún `.exe`.
+- **Pausa real** (SIGSTOP/ptrace) en lugar del marcador de UI actual.
+  Android no expone el API desde la JVM y el motor lo deja documentado.
+- **Alta manual de juegos** desde un `.exe` arbitrario.
+- **Pantalla de ajustes persistidos** con DataStore (idioma, DPI de los
+  controles, fps cap global, etc.).
+- **Cifrado del prefijo** y migración multi-juego.

@@ -62,6 +62,7 @@ import com.nexora.android.ui.components.SectionHeader
 import com.nexora.android.ui.components.StorageAccessCard
 import com.nexora.android.ui.scanner.GameScannerViewModel
 import com.nexora.android.ui.scanner.ScannerUiState
+import com.nexora.android.ui.screens.GameRunnerRoute
 import com.nexora.android.ui.theme.NexoraAccent
 import com.nexora.android.ui.theme.NexoraAccentMuted
 import com.nexora.android.ui.theme.NexoraBackground
@@ -141,12 +142,22 @@ fun NexoraHomeRoute(
         gameId = selectedGame?.id.orEmpty(),
     )
 
-    BackHandler(enabled = editingControls) { viewModel.closeControlEditor() }
-    BackHandler(enabled = selectedGame != null && !editingControls) {
+    val runningGame = uiState.runningGameId?.let { id -> uiState.games.firstOrNull { it.id == id } }
+
+    BackHandler(enabled = runningGame != null) { viewModel.closeGameRunner() }
+    BackHandler(enabled = editingControls && runningGame == null) { viewModel.closeControlEditor() }
+    BackHandler(enabled = selectedGame != null && !editingControls && runningGame == null) {
         viewModel.closeGameDetail()
     }
 
-    if (editingControls && selectedGame != null) {
+    if (runningGame != null) {
+        GameRunnerRoute(
+            gameId = runningGame.id,
+            controlLayout = controlLayout,
+            onBack = viewModel::closeGameRunner,
+            modifier = modifier,
+        )
+    } else if (editingControls && selectedGame != null) {
         ControlEditorScreen(
             gameName = selectedGame.name,
             layout = controlLayout,

@@ -63,6 +63,8 @@ import kotlinx.coroutines.launch
  * @property controlLayout Disposición del HUD táctil del juego abierto (Fase 5).
  * @property controlEditorGameId Juego cuyo HUD se está editando; `null` fuera
  *   del editor. La navegación sigue siendo estado: no hay grafo que mantener.
+ * @property runningGameId Juego abierto en la pantalla de ejecución (Fase 6).
+ *   `null` si no hay ninguna sesión de juego abierta.
  */
 data class ScannerUiState(
     val games: List<Game> = emptyList(),
@@ -79,6 +81,7 @@ data class ScannerUiState(
     val customParameters: PerformanceParameters? = null,
     val controlLayout: ControlLayout? = null,
     val controlEditorGameId: String? = null,
+    val runningGameId: String? = null,
 )
 
 /**
@@ -233,6 +236,9 @@ class GameScannerViewModel(
                 customParameters = null,
                 controlLayout = null,
                 controlEditorGameId = null,
+                // No tocamos runningGameId: si el juego se está ejecutando, no
+                // se debe cerrar la pantalla de detalle y dejar la de ejecución
+                // huérfana. openGameRunner ya abre la ejecución desde el detalle.
             )
         }
     }
@@ -352,17 +358,36 @@ class GameScannerViewModel(
     /**
      * Botón "Jugar".
      *
-     * Fase 4: el juego ya está registrado, persistido y con perfil asignado,
-     * pero **no se lanza**: el runtime de ejecución se integra en fases
-     * posteriores. El botón existe y es funcional (informa al usuario) para no
-     * tener que tocar la tarjeta cuando llegue el motor.
+     * Fase 6: el runtime de ejecución ya está integrado. Abrir el juego lanza
+     * `GameRunnerScreen`, que monta el compositor del entorno y el motor.
+     * El botón en la tarjeta de la biblioteca hace lo mismo: ambos llaman a
+     * [openGameRunner].
      */
     fun requestPlay(game: Game) {
+        openGameRunner(game.id)
+    }
+
+    /** Abre la pantalla de ejecución del juego. */
+    fun openGameRunner(gameId: String) {
         mutableUiState.update {
             it.copy(
-                infoMessage = getString(R.string.play_not_available, game.name),
-                errorMessage = null,
+                selectedGameId = gameId,
+                runningGameId = gameId,
             )
+        }
+    }
+
+    /**
+     * Cierra la pantalla de ejecución y limpia el estado de la sesión.
+     *
+     * El apagado real del motor lo hace `RuntimeViewModel.onCleared` cuando
+     * la pantalla sale de la composición. Aquí limpiamos solo el flag de
+     * ejecución: si el detalle estaba abierto (que es lo normal), la
+     * navegación vuelve a él; si no, vuelve a la biblioteca.
+     */
+    fun closeGameRunner() {
+        mutableUiState.update {
+            it.copy(runningGameId = null)
         }
     }
 
@@ -425,6 +450,7 @@ class GameScannerViewModel(
                     customParameters = null,
                     controlLayout = it.controlLayout?.takeUnless { it.gameId == gameId },
                     controlEditorGameId = null,
+                    runningGameId = it.runningGameId?.takeUnless { id -> id == gameId },
                     infoMessage = null,
                     errorMessage = null,
                 )
