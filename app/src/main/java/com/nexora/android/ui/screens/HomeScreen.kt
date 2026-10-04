@@ -36,7 +36,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,7 +51,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nexora.android.R
 import com.nexora.android.engine.DeviceInfo
-import com.nexora.android.engine.DeviceInfoProvider
+import com.nexora.android.engine.DeviceTier
+import com.nexora.android.engine.GpuVendor
 import com.nexora.android.game.model.Game
 import com.nexora.android.ui.components.GameCard
 import com.nexora.android.ui.components.NexoraCard
@@ -97,9 +97,9 @@ fun NexoraHomeRoute(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    val deviceInfo by produceState<DeviceInfo?>(initialValue = null) {
-        value = DeviceInfoProvider(context).getDeviceInfo()
-    }
+    // Los datos del dispositivo los lee el ViewModel: los necesita el
+    // AutoOptimizer, no solo esta pantalla.
+    val deviceInfo = uiState.deviceInfo
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -141,6 +141,9 @@ fun NexoraHomeRoute(
         GameDetailScreen(
             game = selectedGame,
             onBack = viewModel::closeGameDetail,
+            profileRecommendation = uiState.profileRecommendation,
+            customParameters = uiState.customParameters,
+            onSelectProfile = { profile -> viewModel.selectProfile(selectedGame.id, profile) },
             onPlay = { viewModel.requestPlay(selectedGame) },
             onChangeIcon = { viewModel.cycleGameIcon(selectedGame.id) },
             onCopyPath = viewModel::notifyPathCopied,
@@ -477,6 +480,18 @@ private fun DeviceInfoCard(
             label = stringResource(R.string.device_info_cpu_cores),
             value = deviceInfo.cpuCoreCount.toString(),
         )
+        DeviceInfoRow(
+            label = stringResource(R.string.device_info_gpu),
+            value = if (deviceInfo.gpuVendor == GpuVendor.UNKNOWN) {
+                stringResource(R.string.device_info_unknown)
+            } else {
+                deviceInfo.gpuVendor.label
+            },
+        )
+        DeviceInfoRow(
+            label = stringResource(R.string.device_info_gl_es),
+            value = formatGlEsVersion(deviceInfo.glEsVersion),
+        )
 
         Spacer(modifier = Modifier.height(10.dp))
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -489,6 +504,20 @@ private fun DeviceInfoCard(
         DeviceInfoRow(
             label = stringResource(R.string.device_info_available_memory),
             value = formatGigabytes(deviceInfo.availableMemoryBytes),
+        )
+        DeviceInfoRow(
+            label = stringResource(R.string.device_info_tier),
+            value = DeviceTier.of(deviceInfo).label,
+        )
+        DeviceInfoRow(
+            label = stringResource(R.string.device_info_low_ram),
+            value = stringResource(
+                if (deviceInfo.isLowRamDevice) {
+                    R.string.profile_value_yes
+                } else {
+                    R.string.profile_value_no
+                },
+            ),
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -542,6 +571,18 @@ private fun DeviceInfoRow(
 private fun formatGigabytes(bytes: Long): String {
     if (bytes <= 0L) return "-"
     return String.format("%.2f GB", bytes / BYTES_PER_GIGABYTE)
+}
+
+/**
+ * Traduce la versión de OpenGL ES que codifica el sistema.
+ *
+ * `reqGlEsVersion` guarda la mayor en la parte alta y la menor en la baja:
+ * `0x00030002` es GL ES 3.2.
+ */
+private fun formatGlEsVersion(version: Int): String = if (version <= 0) {
+    "-"
+} else {
+    "${version shr 16}.${version and 0xFFFF}"
 }
 
 @Preview(showBackground = true, widthDp = 420, heightDp = 1100)

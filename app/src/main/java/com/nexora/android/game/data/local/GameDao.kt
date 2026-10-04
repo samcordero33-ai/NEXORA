@@ -48,6 +48,15 @@ interface GameDao {
     @Query("UPDATE games SET iconUri = :iconUri WHERE id = :id")
     suspend fun updateIconUri(id: String, iconUri: String?)
 
+    /**
+     * Fija el perfil de rendimiento de un juego.
+     *
+     * @param profileId Identificador del perfil, o `null` para volver al
+     *   automático (decide el AutoOptimizer).
+     */
+    @Query("UPDATE games SET profileId = :profileId WHERE id = :id")
+    suspend fun updateProfileId(id: String, profileId: String?)
+
     @Query("DELETE FROM games WHERE id = :id")
     suspend fun deleteById(id: String)
 

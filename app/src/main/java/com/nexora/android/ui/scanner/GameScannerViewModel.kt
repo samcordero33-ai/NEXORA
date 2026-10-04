@@ -7,6 +7,14 @@ import androidx.core.net.toUri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nexora.android.R
+import com.nexora.android.engine.DeviceInfo
+import com.nexora.android.engine.DeviceInfoProvider
+import com.nexora.android.engine.profile.AutoOptimizer
+import com.nexora.android.engine.profile.GameProfileHints
+import com.nexora.android.engine.profile.GameProfileInspector
+import com.nexora.android.engine.profile.PerformanceParameters
+import com.nexora.android.engine.profile.PerformanceProfile
+import com.nexora.android.engine.profile.ProfileRecommendation
 import com.nexora.android.game.data.local.NexoraDatabase
 import com.nexora.android.game.model.Game
 import com.nexora.android.game.model.GameIconPreset
@@ -42,6 +50,11 @@ import kotlinx.coroutines.launch
  * @property infoMessage Mensaje informativo no bloqueante.
  * @property errorMessage Mensaje de error no bloqueante.
  * @property storageAccess Estado de los permisos de almacenamiento.
+ * @property deviceInfo Datos del dispositivo; los usa el AutoOptimizer.
+ * @property profileHints Pistas del juego abierto en el detalle.
+ * @property profileRecommendation Recomendación del AutoOptimizer para ese juego.
+ * @property customParameters Parámetros derivados para el perfil
+ *   "Auto Personalizado" en este dispositivo.
  */
 data class ScannerUiState(
     val games: List<Game> = emptyList(),
@@ -52,14 +65,19 @@ data class ScannerUiState(
     val infoMessage: String? = null,
     val errorMessage: String? = null,
     val storageAccess: StorageAccessState = StorageAccessState(),
+    val deviceInfo: DeviceInfo? = null,
+    val profileHints: GameProfileHints? = null,
+    val profileRecommendation: ProfileRecommendation? = null,
+    val customParameters: PerformanceParameters? = null,
 )
 
 /**
  * ViewModel de la pantalla principal.
  *
- * Orquesta los permisos, el escáner y la biblioteca. No contiene lógica de
- * negocio: la decisión de qué es un juego vive en `GameScanner`, y la
- * biblioteca en `GameLibraryRepository` (respaldada por Room).
+ * Orquesta los permisos, el escáner, la biblioteca y el AutoOptimizer. No
+ * contiene lógica de negocio: la decisión de qué es un juego vive en
+ * `GameScanner`, la biblioteca en `GameLibraryRepository` (respaldada por Room)
+ * y la recomendación de perfil en `AutoOptimizer`.
  */
 class GameScannerViewModel(
     application: Application,
@@ -69,23 +87,32 @@ class GameScannerViewModel(
         dao = NexoraDatabase.getInstance(application).gameDao(),
     )
     private val accessController = StorageAccessController(application)
+    private val deviceInfoProvider = DeviceInfoProvider(application)
+    private val profileInspector = GameProfileInspector(application)
+    private val autoOptimizer = AutoOptimizer()
     private val settings: AppSettings = AppSettings.DEFAULT
 
     private val mutableUiState = MutableStateFlow(ScannerUiState())
     val uiState: StateFlow<ScannerUiState> = mutableUiState.asStateFlow()
 
     init {
+        mutableUiState.update { it.copy(deviceInfo = deviceInfoProvider.getDeviceInfo()) }
+
         // Room re-emite la consulta ante cualquier cambio de la tabla: la UI se
-        // refresca sola tras escanear, borrar o cambiar un icono.
+        // refresca sola tras escanear, borrar o cambiar un icono o un perfil.
         viewModelScope.launch {
             repository.games.collect { games ->
                 mutableUiState.update { state ->
+                    val stillOpen = state.selectedGameId?.takeIf { id ->
+                        games.any { it.id == id }
+                    }
                     state.copy(
                         games = games,
                         // Un juego borrado no puede seguir abierto en detalle.
-                        selectedGameId = state.selectedGameId?.takeIf { id ->
-                            games.any { it.id == id }
-                        },
+                        selectedGameId = stillOpen,
+                        profileRecommendation = state.profileRecommendation.takeIf { stillOpen != null },
+                        profileHints = state.profileHints.takeIf { stillOpen != null },
+                        customParameters = state.customParameters.takeIf { stillOpen != null },
                     )
                 }
             }
@@ -155,14 +182,34 @@ class GameScannerViewModel(
 
     // --- Navegación ---------------------------------------------------------
 
-    /** Abre la pantalla de detalle de un juego. */
+    /**
+     * Abre la pantalla de detalle de un juego y calcula su recomendación.
+     *
+     * El cálculo va en segundo plano: inspeccionar la carpeta del juego implica
+     * enumerar archivos, y eso no puede pasar en el hilo principal.
+     */
     fun openGameDetail(gameId: String) {
-        mutableUiState.update { it.copy(selectedGameId = gameId) }
+        mutableUiState.update {
+            it.copy(
+                selectedGameId = gameId,
+                profileHints = null,
+                profileRecommendation = null,
+                customParameters = null,
+            )
+        }
+        viewModelScope.launch { recommendProfileFor(gameId) }
     }
 
     /** Vuelve de la pantalla de detalle a la biblioteca. */
     fun closeGameDetail() {
-        mutableUiState.update { it.copy(selectedGameId = null) }
+        mutableUiState.update {
+            it.copy(
+                selectedGameId = null,
+                profileHints = null,
+                profileRecommendation = null,
+                customParameters = null,
+            )
+        }
     }
 
     // --- Acciones de la biblioteca -----------------------------------------
@@ -170,10 +217,10 @@ class GameScannerViewModel(
     /**
      * Botón "Jugar".
      *
-     * Fase 3: el juego ya está registrado y persistido, pero **no se lanza**: el
-     * runtime de ejecución se integra en fases posteriores. El botón existe y es
-     * funcional (informa al usuario) para no tener que tocar la tarjeta cuando
-     * llegue el motor.
+     * Fase 4: el juego ya está registrado, persistido y con perfil asignado,
+     * pero **no se lanza**: el runtime de ejecución se integra en fases
+     * posteriores. El botón existe y es funcional (informa al usuario) para no
+     * tener que tocar la tarjeta cuando llegue el motor.
      */
     fun requestPlay(game: Game) {
         mutableUiState.update {
@@ -196,6 +243,30 @@ class GameScannerViewModel(
         }
     }
 
+    /**
+     * Fija el perfil de rendimiento de un juego.
+     *
+     * Se persiste en Room, así que la elección sobrevive al reinicio.
+     *
+     * @param profile Perfil elegido, o `null` para devolver la decisión al
+     *   AutoOptimizer.
+     */
+    fun selectProfile(gameId: String, profile: PerformanceProfile?) {
+        viewModelScope.launch {
+            repository.setProfile(gameId, profile)
+            mutableUiState.update {
+                it.copy(
+                    infoMessage = if (profile == null) {
+                        getString(R.string.profile_reset_auto)
+                    } else {
+                        getString(R.string.profile_applied, profile.technicalName)
+                    },
+                    errorMessage = null,
+                )
+            }
+        }
+    }
+
     /** Avisa de que la ruta del ejecutable se copió al portapapeles. */
     fun notifyPathCopied() {
         mutableUiState.update {
@@ -210,6 +281,9 @@ class GameScannerViewModel(
             mutableUiState.update {
                 it.copy(
                     selectedGameId = it.selectedGameId?.takeUnless { id -> id == gameId },
+                    profileHints = null,
+                    profileRecommendation = null,
+                    customParameters = null,
                     infoMessage = null,
                     errorMessage = null,
                 )
@@ -242,6 +316,41 @@ class GameScannerViewModel(
                 )
         }
         refreshStorageAccess()
+    }
+
+    /**
+     * Calcula la recomendación del AutoOptimizer para un juego.
+     *
+     * Se vuelve a leer el dispositivo en este momento (la memoria disponible
+     * cambia) y se inspecciona la carpeta del juego para saber qué API gráfica
+     * pide; con ambas cosas, el optimizador puntúa los perfiles.
+     */
+    private suspend fun recommendProfileFor(gameId: String) {
+        val game = repository.gameById(gameId) ?: return
+        val device = deviceInfoProvider.getDeviceInfo()
+        val hints = profileInspector.inspect(
+            title = game.name,
+            installDirectory = game.installDirectory,
+            sizeBytes = game.sizeBytes,
+            documentUri = game.documentUri,
+        )
+        val recommendation = autoOptimizer.recommend(device, hints)
+        val customParameters = autoOptimizer.parameters(
+            profile = PerformanceProfile.AUTO_CUSTOM,
+            device = device,
+            hints = hints,
+        )
+
+        mutableUiState.update { state ->
+            // Si el usuario ya cerró el detalle, la recomendación llega tarde.
+            if (state.selectedGameId != gameId) return@update state
+            state.copy(
+                deviceInfo = device,
+                profileHints = hints,
+                profileRecommendation = recommendation,
+                customParameters = customParameters,
+            )
+        }
     }
 
     private fun emitProgress(progress: ScanProgress) {

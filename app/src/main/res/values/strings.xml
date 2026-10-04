@@ -53,6 +53,39 @@
     <string name="detail_remove_confirm">Quitar</string>
     <string name="detail_remove_cancel">Cancelar</string>
 
+    <!-- Perfiles de rendimiento / AutoOptimizer -->
+    <string name="section_performance">Rendimiento</string>
+    <string name="profile_recommended_title">Perfil recomendado por AutoOptimizer</string>
+    <string name="profile_calculating">Calculando la recomendación con el hardware del dispositivo...</string>
+    <string name="profile_mode_auto">Automático</string>
+    <string name="profile_mode_manual">Manual</string>
+    <string name="profile_confidence">Confianza de la recomendación: %1$d%%</string>
+    <string name="profile_change">Cambiar perfil</string>
+    <string name="profile_dialog_title">Perfil de rendimiento</string>
+    <string name="profile_option_auto">Automático (AutoOptimizer)</string>
+    <string name="profile_option_auto_summary">NEXORA elige según el hardware y el juego.</string>
+    <string name="profile_option_recommended">Recomendado</string>
+    <string name="profile_cancel">Cerrar</string>
+    <string name="profile_applied">Perfil aplicado: %1$s</string>
+    <string name="profile_reset_auto">El perfil vuelve a decidirlo AutoOptimizer</string>
+    <string name="profile_label_resolution">Resolución sugerida</string>
+    <string name="profile_label_fps">Límite de FPS</string>
+    <string name="profile_label_backend">Renderizado</string>
+    <string name="profile_label_cpu">Prioridad de CPU</string>
+    <string name="profile_label_effects">Efectos</string>
+    <string name="profile_label_textures">Texturas</string>
+    <string name="profile_label_threads">Hilos de trabajo</string>
+    <string name="profile_label_vram">Memoria gráfica</string>
+    <string name="profile_label_audio">Latencia de audio</string>
+    <string name="profile_label_vsync">VSync</string>
+    <string name="profile_fps_unlimited">Sin límite</string>
+    <string name="profile_fps_value">%1$d fps</string>
+    <string name="profile_ms_value">%1$d ms</string>
+    <string name="profile_mb_value">%1$d MB</string>
+    <string name="profile_threads_value">%1$d</string>
+    <string name="profile_value_yes">Sí</string>
+    <string name="profile_value_no">No</string>
+
     <!-- Progreso y resultado -->
     <string name="scan_progress_title">Escaneando almacenamiento</string>
     <string name="scan_progress_counters">%1$d archivos · %2$d carpetas · %3$d candidatos</string>
@@ -77,6 +110,10 @@
     <string name="device_info_android">Android</string>
     <string name="device_info_architecture">Arquitectura</string>
     <string name="device_info_cpu_cores">Núcleos de CPU</string>
+    <string name="device_info_gpu">GPU</string>
+    <string name="device_info_gl_es">OpenGL ES</string>
+    <string name="device_info_tier">Clase de hardware</string>
+    <string name="device_info_low_ram">Memoria reducida</string>
     <string name="device_info_total_memory">Memoria total</string>
     <string name="device_info_available_memory">Memoria disponible</string>
     <string name="device_info_unknown">Desconocido</string>

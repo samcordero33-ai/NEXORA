@@ -9,6 +9,10 @@ import android.os.Build
  *
  * Usa solo APIs de Android (`android.os.Build`, `android.app.ActivityManager`).
  * No hay dependencias de escritorio Java.
+ *
+ * Fase 4: además de los datos de siempre, deduce el fabricante de la GPU y la
+ * versión de OpenGL ES, que son las dos señales que el AutoOptimizer necesita
+ * para decidir entre una ruta DirectX y una Vulkan.
  */
 class DeviceInfoProvider(
     private val context: Context,
@@ -21,9 +25,12 @@ class DeviceInfoProvider(
      * llamar a este método cada vez que se refresque la pantalla.
      */
     fun getDeviceInfo(): DeviceInfo {
+        val activityManager = context.getSystemService(ActivityManager::class.java)
         val memoryInfo = ActivityManager.MemoryInfo().also { info ->
-            context.getSystemService(ActivityManager::class.java)?.getMemoryInfo(info)
+            activityManager?.getMemoryInfo(info)
         }
+
+        val gpuRenderer = gpuRendererCandidates().joinToString(separator = " ")
 
         return DeviceInfo(
             manufacturer = Build.MANUFACTURER.orUnknown(),
@@ -34,7 +41,30 @@ class DeviceInfoProvider(
             cpuCoreCount = Runtime.getRuntime().availableProcessors(),
             totalMemoryBytes = memoryInfo.totalMem,
             availableMemoryBytes = memoryInfo.availMem,
+            gpuVendor = GpuVendor.fromDeviceStrings(gpuRenderer),
+            gpuRenderer = gpuRenderer.trim(),
+            glEsVersion = activityManager?.deviceConfigurationInfo?.reqGlEsVersion ?: 0,
+            isLowRamDevice = activityManager?.isLowRamDevice ?: false,
         )
+    }
+
+    /**
+     * Cadenas del sistema donde suele aparecer el nombre de la GPU o del SoC.
+     *
+     * `SOC_MODEL` y `SOC_MANUFACTURER` son de API 31, así que se añaden solo si
+     * el dispositivo las tiene; en versiones anteriores quedan `HARDWARE`,
+     * `BOARD` y compañía, que casi siempre bastan.
+     */
+    private fun gpuRendererCandidates(): List<String> = buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            add(Build.SOC_MODEL)
+            add(Build.SOC_MANUFACTURER)
+        }
+        add(Build.HARDWARE)
+        add(Build.BOARD)
+        add(Build.DEVICE)
+        add(Build.MANUFACTURER)
+        add(Build.MODEL)
     }
 
     // `isNullOrBlank()` tiene contrato de smart cast: en la rama else `this` ya

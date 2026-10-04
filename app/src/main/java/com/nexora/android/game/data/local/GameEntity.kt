@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.nexora.android.engine.profile.PerformanceProfile
 import com.nexora.android.game.model.Game
 import com.nexora.android.game.model.GameIconPreset
 import com.nexora.android.game.model.GameSource
@@ -21,6 +22,10 @@ import com.nexora.android.game.model.GameSource
  * - `iconPreset`: icono predeterminado del juego; `0` es el predeterminado de
  *   la biblioteca. `iconUri` queda reservado para un icono personalizado.
  * - `addedAt`: fecha de agregado, en milisegundos de época.
+ * - `profileId`: perfil de rendimiento elegido por el usuario (Fase 4). Guarda
+ *   el **identificador** del perfil, nunca su ordinal, para que añadir perfiles
+ *   no reinterprete los datos guardados. `NULL` significa "automático": decide
+ *   el AutoOptimizer.
  *
  * El resto de columnas (`installDirectory`, `sizeBytes`, `source`,
  * `documentUri`) son los metadatos que ya producía el escáner de la Fase 2 y
@@ -54,6 +59,9 @@ data class GameEntity(
     @ColumnInfo(name = "iconUri")
     val iconUri: String?,
 
+    @ColumnInfo(name = "profileId")
+    val profileId: String?,
+
     @ColumnInfo(name = "addedAt")
     val addedAt: Long,
 
@@ -75,6 +83,7 @@ fun GameEntity.toDomain(): Game = Game(
     installDirectory = installDirectory,
     iconPreset = GameIconPreset.fromOrdinal(iconPreset),
     iconUri = iconUri,
+    profile = PerformanceProfile.fromId(profileId),
     addedAtMillis = addedAt,
     source = GameSource.fromName(source),
     sizeBytes = sizeBytes,
@@ -89,6 +98,7 @@ fun Game.toEntity(): GameEntity = GameEntity(
     installDirectory = installDirectory,
     iconPreset = iconPreset.ordinal,
     iconUri = iconUri,
+    profileId = profile?.id,
     addedAt = addedAtMillis,
     source = source.name,
     sizeBytes = sizeBytes,

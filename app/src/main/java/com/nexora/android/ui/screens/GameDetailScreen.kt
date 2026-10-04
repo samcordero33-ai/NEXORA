@@ -44,10 +44,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.nexora.android.R
+import com.nexora.android.engine.DeviceInfo
+import com.nexora.android.engine.GpuVendor
+import com.nexora.android.engine.profile.AutoOptimizer
+import com.nexora.android.engine.profile.GameGenre
+import com.nexora.android.engine.profile.GameProfileHints
+import com.nexora.android.engine.profile.GraphicsApi
+import com.nexora.android.engine.profile.PerformanceParameters
+import com.nexora.android.engine.profile.PerformanceProfile
+import com.nexora.android.engine.profile.ProfileRecommendation
 import com.nexora.android.game.model.Game
 import com.nexora.android.game.model.GameSource
 import com.nexora.android.ui.components.GameIconBadge
 import com.nexora.android.ui.components.NexoraCard
+import com.nexora.android.ui.components.PerformanceProfileCard
 import com.nexora.android.ui.components.SectionHeader
 import com.nexora.android.ui.theme.NexoraAccent
 import com.nexora.android.ui.theme.NexoraBackground
@@ -62,10 +72,17 @@ import com.nexora.android.ui.util.formatDateTime
  * Pantalla de detalle de un juego.
  *
  * Muestra la información del ejecutable tal como la guardó el escáner (ruta,
- * carpeta de instalación, tamaño, origen y fecha de alta) y las **opciones
- * iniciales** del juego: jugar, cambiar el icono, copiar la ruta y quitarlo de
- * la biblioteca.
+ * carpeta de instalación, tamaño, origen y fecha de alta), el **perfil de
+ * rendimiento** que propone el AutoOptimizer (con su selección manual) y las
+ * **opciones iniciales** del juego: jugar, cambiar el icono, copiar la ruta y
+ * quitarlo de la biblioteca.
  *
+ * @param profileRecommendation Recomendación del AutoOptimizer para este juego;
+ *   `null` mientras se calcula.
+ * @param customParameters Parámetros derivados para el perfil "Auto
+ *   Personalizado" en este dispositivo.
+ * @param onSelectProfile Fija el perfil del juego (o `null` para el automático);
+ *   la elección se persiste en Room.
  * @param onPlay "Jugar". La fase del runtime aún no está integrada: la acción
  *   avisa al usuario sin lanzar nada.
  * @param onChangeIcon Cambia el icono predeterminado; se persiste en Room.
@@ -77,6 +94,9 @@ import com.nexora.android.ui.util.formatDateTime
 fun GameDetailScreen(
     game: Game,
     onBack: () -> Unit,
+    profileRecommendation: ProfileRecommendation?,
+    customParameters: PerformanceParameters?,
+    onSelectProfile: (PerformanceProfile?) -> Unit,
     onPlay: () -> Unit,
     onChangeIcon: () -> Unit,
     onCopyPath: () -> Unit,
@@ -168,6 +188,16 @@ fun GameDetailScreen(
                 color = NexoraTextPrimary,
             )
         }
+
+        Spacer(modifier = Modifier.height(20.dp))
+        SectionHeader(title = stringResource(R.string.section_performance))
+        Spacer(modifier = Modifier.height(10.dp))
+        PerformanceProfileCard(
+            recommendation = profileRecommendation,
+            selectedProfile = game.profile,
+            customParameters = customParameters,
+            onSelectProfile = onSelectProfile,
+        )
 
         Spacer(modifier = Modifier.height(20.dp))
         SectionHeader(title = stringResource(R.string.detail_section_options))
@@ -394,9 +424,32 @@ private fun accessLabel(usesDocumentUri: Boolean): Int = if (usesDocumentUri) {
     R.string.detail_access_path
 }
 
-@Preview(showBackground = true, widthDp = 420, heightDp = 900)
+@Preview(showBackground = true, widthDp = 420, heightDp = 1200)
 @Composable
 private fun GameDetailScreenPreview() {
+    val device = DeviceInfo(
+        manufacturer = "NEXORA",
+        model = "Preview",
+        androidVersion = "13",
+        apiLevel = 33,
+        primaryAbi = "arm64-v8a",
+        cpuCoreCount = 8,
+        totalMemoryBytes = 6_442_450_944L,
+        availableMemoryBytes = 3_221_225_472L,
+        gpuVendor = GpuVendor.MALI,
+        gpuRenderer = "Mali-G57 MC2",
+        glEsVersion = 0x0003_0002,
+        isLowRamDevice = false,
+    )
+    val hints = GameProfileHints(
+        title = "Hollow Knight",
+        installDirectory = "/storage/emulated/0/Games/Hollow Knight",
+        detectedApis = setOf(GraphicsApi.D3D9),
+        genre = GameGenre.PLATFORMER,
+        inspected = true,
+    )
+    val optimizer = AutoOptimizer()
+
     NexoraTheme {
         GameDetailScreen(
             game = Game(
@@ -409,6 +462,13 @@ private fun GameDetailScreenPreview() {
                 source = GameSource.SCAN,
             ),
             onBack = {},
+            profileRecommendation = optimizer.recommend(device, hints),
+            customParameters = optimizer.parameters(
+                profile = PerformanceProfile.AUTO_CUSTOM,
+                device = device,
+                hints = hints,
+            ),
+            onSelectProfile = {},
             onPlay = {},
             onChangeIcon = {},
             onCopyPath = {},

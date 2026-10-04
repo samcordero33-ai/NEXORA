@@ -4,18 +4,27 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * Base de datos local de NEXORA.
  *
- * Versión 1, una sola tabla (`games`). Es intencionadamente pequeña: aquí no se
- * guarda nada del runtime de ejecución, solo la biblioteca que el usuario ha
- * detectado, así que la capa de datos es **independiente del motor de
- * emulación** y sigue compilando y funcionando sin él.
+ * Versión 2: la tabla `games` gana la columna `profileId`, donde se guarda el
+ * perfil de rendimiento que el usuario ha elegido para cada juego (Fase 4).
+ *
+ * La migración es **manual** y aditiva: `ALTER TABLE ... ADD COLUMN` sobre una
+ * columna nullable no toca las filas existentes, así que un juego ya guardado
+ * sigue en automático (`NULL`) en vez de heredar un perfil que nadie eligió.
+ *
+ * Es intencionadamente pequeña: aquí no se guarda nada del runtime de
+ * ejecución, solo la biblioteca que el usuario ha detectado, así que la capa de
+ * datos es **independiente del motor de emulación** y sigue compilando y
+ * funcionando sin él.
  */
 @Database(
     entities = [GameEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class NexoraDatabase : RoomDatabase() {
@@ -25,6 +34,13 @@ abstract class NexoraDatabase : RoomDatabase() {
     companion object {
 
         private const val DATABASE_NAME = "nexora-library.db"
+
+        /** Fase 4: alta de la columna `profileId` (perfil por juego). */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE games ADD COLUMN profileId TEXT")
+            }
+        }
 
         @Volatile
         private var instance: NexoraDatabase? = null
@@ -42,7 +58,10 @@ abstract class NexoraDatabase : RoomDatabase() {
                     context.applicationContext,
                     NexoraDatabase::class.java,
                     DATABASE_NAME,
-                ).build().also { created -> instance = created }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { created -> instance = created }
             }
     }
 }

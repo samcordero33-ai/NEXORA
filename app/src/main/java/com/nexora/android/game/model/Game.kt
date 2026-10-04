@@ -1,5 +1,7 @@
 package com.nexora.android.game.model
 
+import com.nexora.android.engine.profile.PerformanceProfile
+
 /**
  * Modelo de datos de un juego de la biblioteca.
  *
@@ -9,6 +11,7 @@ package com.nexora.android.game.model
  * Fase 3: se añaden [iconPreset] e [iconUri] y el modelo se persiste en Room
  * (`game/data/local/GameEntity.kt`), de modo que la biblioteca sobrevive al
  * reinicio de la aplicación.
+ * Fase 4: se añade [profile], el perfil de rendimiento fijado por el usuario.
  *
  * @property id Identificador estable. El escáner lo deriva de la ruta del
  *   ejecutable, de modo que volver a escanear no duplica la entrada.
@@ -19,6 +22,9 @@ package com.nexora.android.game.model
  *   en base de datos y el usuario lo cambia desde "Ajustes del juego".
  * @property iconUri Icono personalizado opcional, como URI en texto. `null`
  *   significa que se usa el [iconPreset]. Está previsto para fases posteriores.
+ * @property profile Perfil de rendimiento elegido por el usuario para este
+ *   juego. `null` es **automático**: manda lo que recomiende el AutoOptimizer
+ *   según el hardware y las pistas del juego.
  * @property addedAtMillis Momento de alta, en milisegundos de época.
  * @property source Procedencia del alta.
  * @property sizeBytes Tamaño del ejecutable en bytes; 0 si no se pudo leer.
@@ -35,6 +41,7 @@ data class Game(
     val installDirectory: String? = null,
     val iconPreset: GameIconPreset = GameIconPreset.DEFAULT,
     val iconUri: String? = null,
+    val profile: PerformanceProfile? = null,
     val addedAtMillis: Long = 0L,
     val source: GameSource = GameSource.MANUAL,
     val sizeBytes: Long = 0L,

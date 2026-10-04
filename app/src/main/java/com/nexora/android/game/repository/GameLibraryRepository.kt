@@ -1,5 +1,6 @@
 package com.nexora.android.game.repository
 
+import com.nexora.android.engine.profile.PerformanceProfile
 import com.nexora.android.game.data.local.GameDao
 import com.nexora.android.game.data.local.toDomain
 import com.nexora.android.game.data.local.toEntity
@@ -60,6 +61,16 @@ class GameLibraryRepository(
     /** Cambia el icono predeterminado de un juego. */
     suspend fun setIconPreset(gameId: String, preset: GameIconPreset) {
         dao.updateIconPreset(gameId, preset.ordinal)
+    }
+
+    /**
+     * Fija el perfil de rendimiento de un juego.
+     *
+     * @param profile Perfil elegido, o `null` para volver al automático: en
+     *   ese caso la UI muestra lo que recomiende el AutoOptimizer.
+     */
+    suspend fun setProfile(gameId: String, profile: PerformanceProfile?) {
+        dao.updateProfileId(gameId, profile?.id)
     }
 
     private companion object {

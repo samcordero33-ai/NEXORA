@@ -1,5 +1,6 @@
 package com.nexora.android.game.data.local
 
+import com.nexora.android.engine.profile.PerformanceProfile
 import com.nexora.android.game.model.Game
 import com.nexora.android.game.model.GameIconPreset
 import com.nexora.android.game.model.GameSource
@@ -63,6 +64,27 @@ class GameEntityTest {
         val entity = sampleGame.toEntity().copy(source = "NO_EXISTE")
 
         assertEquals(GameSource.MANUAL, entity.toDomain().source)
+    }
+
+    @Test
+    fun `el perfil elegido por el usuario se guarda por identificador`() {
+        val entity = sampleGame.copy(profile = PerformanceProfile.RTS_PERFORMANCE).toEntity()
+
+        assertEquals("rts_performance", entity.profileId)
+        assertEquals(PerformanceProfile.RTS_PERFORMANCE, entity.toDomain().profile)
+    }
+
+    @Test
+    fun `un juego sin perfil guardado queda en automatico`() {
+        assertNull(sampleGame.toEntity().profileId)
+        assertNull(sampleGame.toEntity().toDomain().profile)
+    }
+
+    @Test
+    fun `un identificador de perfil desconocido degrada a automatico`() {
+        val entity = sampleGame.toEntity().copy(profileId = "perfil_del_futuro")
+
+        assertNull(entity.toDomain().profile)
     }
 
     @Test

@@ -1,4 +1,4 @@
-# NEXORA v0.3 — Fase 3
+# NEXORA v0.4 — Fase 4
 
 **Windows Gaming Runtime for Android.**
 
@@ -8,16 +8,18 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   detección del dispositivo.
 - **Fase 2 (v0.2):** escaneo de almacenamiento local y microSD para detectar
   juegos instalados (`.exe`), gestión de permisos y progreso en la UI.
-- **Fase 3 (v0.3, esta versión):** persistencia local de la biblioteca con Room,
-  grilla de tarjetas gaming y pantalla de detalle del juego.
+- **Fase 3 (v0.3):** persistencia local de la biblioteca con Room, grilla de
+  tarjetas gaming y pantalla de detalle del juego.
+- **Fase 4 (v0.4, esta versión):** sistema **AutoOptimizer** y gestión de
+  perfiles de rendimiento/compatibilidad según el hardware detectado.
 
-> **No hay Fase 3 de runtime.** No hay Wine, Box64, DXVK ni ningún motor de
-> traducción, y **tampoco se ejecuta ningún binario de Windows**: el escáner
-> solo lee nombres, rutas y tamaños de archivo y el botón "Jugar" informa de que
-> el lanzamiento llega en una fase posterior.
+> **No hay runtime de ejecución.** No hay Wine, Box64, DXVK ni ningún motor de
+> traducción, y **tampoco se ejecuta ningún binario de Windows**: el escáner y
+> el inspector de perfiles solo leen nombres, rutas y tamaños de archivo, y el
+> botón "Jugar" informa de que el lanzamiento llega en una fase posterior.
 >
-> **No avanza a la Fase 4.** El runtime de ejecución queda fuera de esta
-> versión.
+> **No avanza a la Fase 5.** Los perfiles se calculan y se guardan, pero no se
+> aplican a ninguna sesión porque no hay motor al que aplicarlos.
 
 ## Requisitos cumplidos
 
@@ -27,12 +29,16 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
 | Sin librerías de escritorio Java (`javax.swing.*`, `java.awt.*`) | ✔ verificado en fuentes **y en los DEX del APK** |
 | Sin Wine / Box64 / DXVK | ✔ |
 | No se ejecuta ningún binario de Windows | ✔ el escáner solo lee metadatos |
-| Persistencia local (Room) con entidad `Game` (id, título, ruta del exe, ícono predeterminado, fecha de agregado) | ✔ `GameEntity` + `GameDao` + `NexoraDatabase` v1 |
+| Persistencia local (Room) con entidad `Game` (id, título, ruta del exe, ícono predeterminado, fecha de agregado) | ✔ `GameEntity` + `GameDao` + `NexoraDatabase` v2 |
 | Los juegos detectados sobreviven al reinicio | ✔ la biblioteca se lee de SQLite, no de memoria |
 | Interfaz de biblioteca en grilla de tarjetas gaming | ✔ `LazyVerticalGrid` + `GameCard` |
 | Cada tarjeta: nombre, ícono, "Jugar", "Ajustes del juego" | ✔ |
 | Estado vacío limpio | ✔ |
 | Pantalla de detalle con información del ejecutable y opciones iniciales | ✔ `GameDetailScreen` |
+| 10 perfiles de rendimiento con parámetros técnicos (resolución, FPS, backend DirectX/Vulkan, prioridad de CPU…) | ✔ `PerformanceProfile` |
+| Nombres técnicos, nunca comerciales | ✔ "4. Rendimiento RTS / DirectX 9", "8. CPU Focus / Box64"… |
+| `AutoOptimizer` que recomienda el perfil según hardware (GPU Mali/Adreno, RAM, CPU) y juego | ✔ `AutoOptimizer.recommend()` |
+| Detalle del juego: perfil recomendado + cambio manual persistido en Room | ✔ `PerformanceProfileCard` + columna `profileId` |
 | Compilación limpia e independiente del motor de emulación | ✔ `./gradlew assembleDebug` sin avisos |
 | Arquitectura limpia y modular | ✔ |
 
@@ -66,7 +72,7 @@ com.nexora.android/
 │   │   └── GameDetailScreen.kt # detalle del juego (pura)
 │   ├── scanner/GameScannerViewModel.kt
 │   ├── components/             # NexoraCard, GameCard, GameIcon, ScanProgressCard,
-│   │                           # StorageAccessCard
+│   │                           # StorageAccessCard, PerformanceProfileCard
 │   ├── util/Format.kt          # formateo de tamaños y fechas
 │   └── theme/{Color,Theme,Type}.kt
 ├── game/
@@ -76,7 +82,7 @@ com.nexora.android/
 │   ├── data/local/
 │   │   ├── GameEntity.kt       # entidad Room + mapeo a dominio
 │   │   ├── GameDao.kt          # consultas y Flow sobre la tabla
-│   │   └── NexoraDatabase.kt   # RoomDatabase v1 (singleton)
+│   │   └── NexoraDatabase.kt   # RoomDatabase v2 + migración 1→2 (singleton)
 │   ├── scan/
 │   │   ├── GameScanner.kt      # recorrido SAF y por ruta de filesystem
 │   │   ├── ExecutableFilter.kt # heurísticas .exe (puras, sin Android)
@@ -87,8 +93,15 @@ com.nexora.android/
 │   └── StorageAccessController.kt
 ├── engine/                     # preparado para futuras integraciones
 │   ├── RuntimeEngine.kt        # interfaz + EngineStatus + LaunchResult
-│   ├── DeviceInfo.kt
-│   └── DeviceInfoProvider.kt
+│   ├── DeviceInfo.kt           # + GPU, GL ES, low-RAM y clase de hardware
+│   ├── DeviceInfoProvider.kt   # lectura desde Build y ActivityManager
+│   ├── GpuVendor.kt            # Mali / Adreno / PowerVR / Tegra / Intel
+│   ├── DeviceTier.kt           # gama baja / media / alta
+│   └── profile/
+│       ├── PerformanceProfile.kt   # 10 perfiles + parámetros
+│       ├── GameProfileHints.kt     # pistas del juego (API gráfica, género)
+│       ├── GameProfileInspector.kt # inspección de la carpeta (solo nombres)
+│       └── AutoOptimizer.kt        # puntuación y recomendación (Kotlin puro)
 └── settings/
     └── AppSettings.kt
 ```
@@ -104,8 +117,21 @@ La biblioteca deja de vivir en memoria. Una tabla, una entidad:
 | `exePath` | ruta del ejecutable, con **índice único** |
 | `iconPreset` | ícono predeterminado del juego (`0` = mando) |
 | `iconUri` | ícono personalizado opcional; `null` = usar el preset |
+| `profileId` | perfil de rendimiento elegido (Fase 4); `NULL` = automático |
 | `addedAt` | fecha de agregado, en milisegundos de época |
 | `installDirectory`, `sizeBytes`, `source`, `documentUri` | metadatos del escáner (Fase 2) que muestra el detalle |
+
+La Fase 4 sube el esquema a **v2** con una migración aditiva:
+
+```sql
+ALTER TABLE games ADD COLUMN profileId TEXT
+```
+
+Columna nullable, así que un juego ya guardado sigue en automático (`NULL`) en
+vez de heredar un perfil que nadie eligió, y no se toca ninguna fila existente.
+Se guarda el **identificador** del perfil (`rts_performance`), nunca su ordinal:
+así se pueden añadir perfiles sin reinterpretar datos guardados, y un `id`
+desconocido degrada a automático en vez de romper la pantalla.
 
 Decisiones que importan:
 
@@ -144,10 +170,94 @@ configuración. Si el juego abierto se borra, la pantalla vuelve sola a la
 biblioteca.
 
 La pantalla de detalle muestra **información del ejecutable** (archivo, carpeta
-de instalación, tamaño, origen, fecha de alta, tipo de acceso y ruta completa) y
-sus **opciones iniciales**: jugar, cambiar el ícono (persistido), copiar la ruta
-al portapapeles y quitar de la biblioteca — con confirmación, y sin tocar nunca
-el archivo original.
+de instalación, tamaño, origen, fecha de alta, tipo de acceso y ruta completa),
+el **perfil recomendado por AutoOptimizer** y sus **opciones iniciales**: jugar,
+cambiar el ícono (persistido), copiar la ruta al portapapeles y quitar de la
+biblioteca — con confirmación, y sin tocar nunca el archivo original.
+
+```
+RENDIMIENTO
+┌────────────────────────────────────────┐
+│ ✨ Perfil recomendado por AutoOptimizer │
+│ 4. Rendimiento RTS / DirectX 9   [AUTO]│
+│ Estrategia en tiempo real: CPU …       │
+│ Confianza de la recomendación: 100 %   │
+│ Resolución sugerida    1024 × 768      │
+│ Límite de FPS          30 fps          │
+│ Renderizado            DirectX 9       │
+│ Prioridad de CPU       Alta            │
+│ Efectos / Texturas     Baja / Baja     │
+│ Hilos de trabajo       6               │
+│ Memoria gráfica        384 MB          │
+│ Latencia de audio      40 ms           │
+│ VSync                  No              │
+│ · Estrategia en tiempo real: manda …   │
+│ · DirectX 9 es la API habitual de …    │
+│ · GPU Mali de gama media: 30 fps …     │
+│ [ CAMBIAR PERFIL ]                     │
+└────────────────────────────────────────┘
+```
+
+Así se ve el caso del enunciado (RTS + DirectX 9 sobre Mali de gama media):
+
+"Cambiar perfil" abre el selector con los diez perfiles más la opción
+**Automático (AutoOptimizer)**, marcando cuál es el recomendado. La elección se
+escribe en Room (`profileId`) y sobrevive al reinicio; el chip de la tarjeta
+distingue `AUTOMÁTICO` de `MANUAL`.
+
+### `engine/profile/` — AutoOptimizer (Fase 4)
+
+El optimizador responde a una pregunta: **qué perfil le conviene a este juego en
+este dispositivo**. Funciona por puntuación, no por árbol de decisiones: cada
+perfil suma puntos según las señales del hardware y del juego, y cada punto
+lleva su motivo, así que la recomendación se explica en la UI.
+
+**Señales del dispositivo** (`DeviceInfo`): memoria total, núcleos,
+`isLowRamDevice`, versión de OpenGL ES y fabricante de la GPU. Android no expone
+el nombre de la GPU por ninguna API pública, así que `GpuVendor` lo clasifica a
+partir de las cadenas que el sistema sí publica (`SOC_MODEL`, `HARDWARE`,
+`BOARD`…): `Mali-G57 MC2` o un `mt6789` dan Mali; `Adreno 642L` o un `sm7325`
+dan Adreno. Es una pista, no una verdad: si no hay coincidencia, las reglas que
+dependen de la GPU simplemente no puntúan.
+
+**Señales del juego** (`GameProfileHints`): la API gráfica se deduce de las
+librerías que acompañan al ejecutable (`d3d9.dll` → DirectX 9, `d3d11.dll` →
+DirectX 11, `vulkan-1.dll` → Vulkan) y el género, del título. `GameProfileInspector`
+enumera la carpeta en `Dispatchers.IO` **sin abrir, leer ni ejecutar nada**: si
+no hay acceso, devuelve "no inspeccionado", que el optimizador trata como
+ausencia de dato y no como un juego sin API gráfica.
+
+Los diez perfiles:
+
+| # | Perfil | Resolución | FPS | Backend | CPU | Para qué |
+|---|---|---|---|---|---|---|
+| 1 | Retro / DirectX 9 | 1024 × 768 | 60 | DirectX 9 | Normal | era DX9, backend ligero |
+| 2 | DirectX 10/11 | 1280 × 720 | 60 | DirectX 10/11 | Alta | juegos que enlazan d3d10/d3d11 |
+| 3 | Vulkan Base | 1280 × 720 | 60 | Vulkan | Alta | menos sobrecarga por llamada |
+| 4 | Rendimiento RTS / DirectX 9 | 1024 × 768 | 30 | DirectX 9 | Alta | estrategia: CPU antes que efectos |
+| 5 | Máximo Rendimiento | 1920 × 1080 | sin límite | Automático | Máxima | hardware sobrado |
+| 6 | Ahorro de Energía | 800 × 600 | 30 | DirectX 9 | Baja | sesiones largas, poca batería |
+| 7 | Compatibilidad Media | 1280 × 720 | 30 | Automático | Normal | opción segura sin datos |
+| 8 | CPU Focus / Box64 | 1024 × 768 | 30 | DirectX 9 | Máxima | traducción en CPU |
+| 9 | Audio Latencia Baja | 1280 × 720 | 60 | Automático | Alta | ritmo, conducción, disparos |
+| 10 | Auto Personalizado | derivada | derivada | derivada | derivada | ninguno encaja: se calculan |
+
+Cada perfil lleva además calidad de efectos y texturas, VSync, hilos de trabajo,
+latencia de audio y presupuesto de memoria gráfica.
+
+El caso del enunciado: **un RTS con gráficos DX9 en un SoC de gama media con
+Mali** (8 núcleos, 6 GB, GL ES 3.2) suma 5 por género RTS, 2 por DirectX 9, 2 por
+GPU móvil de gama media y 1 por núcleos, y gana con claridad el perfil
+**"4. Rendimiento RTS / DirectX 9"**. Hay una prueba que lo fija
+(`la peticion del ejemplo del proyecto se cumple con un juego RTS sobre Mali`).
+
+Dos salidas especiales:
+
+- **Backend inviable**: si el ganador pide Vulkan y la GPU no declara GL ES 3.1,
+  se descarta y se deriva un perfil personalizado (es mejor una sesión que
+  arranca que una recomendación optimista).
+- **Empate sin señal fuerte**: si los dos primeros empatan por debajo de una
+  señal concluyente, tampoco hay ganador claro y se deriva el perfil 10.
 
 ### `game/scan/` — el escáner
 
@@ -251,6 +361,17 @@ Acceso al archivo       Documento del Storage Access Framework
 Ruta completa
 /storage/emulated/0/Games/Hollow Knight/hollow_knight.exe
 
+RENDIMIENTO
+┌────────────────────────────────────────┐
+│ ✨ Perfil recomendado por AutoOptimizer │
+│ 7. Compatibilidad Media          [AUTO] │
+│ Opción segura: no asume nada del …     │
+│ Resolución sugerida    1280 × 720      │
+│ Límite de FPS          30 fps          │
+│ …                                      │
+│ [ CAMBIAR PERFIL ]                     │
+└────────────────────────────────────────┘
+
 OPCIONES INICIALES
 [ ▶ JUGAR                    ]   <- runtime no integrado todavía
 [ 🎨 CAMBIAR ÍCONO           ]
@@ -325,8 +446,13 @@ En cada push a `main`, GitHub Actions compila y publica el artefacto
 ```
 ./gradlew assembleDebug      -> BUILD SUCCESSFUL (sin warnings)
 ./gradlew assembleRelease    -> BUILD SUCCESSFUL (sin warnings)
-./gradlew testDebugUnitTest  -> 14 tests, 0 failures
+./gradlew testDebugUnitTest  -> 36 tests, 0 failures
 ```
+
+Reparto de pruebas: 9 del escáner (Fase 2), 8 del mapeo de la entidad + perfil
+(Fase 3/4), 9 del AutoOptimizer y 10 del catálogo de perfiles y la detección de
+pistas (Fase 4). Todas JVM puras: ni Robolectric ni instrumentación, porque
+ninguna de estas clases toca Android.
 
 Auditoría de librerías de escritorio, en dos niveles:
 
@@ -338,9 +464,33 @@ strings classes*.dex | grep -iE "javax/swing|java/awt" ->  0 resultados
 Los únicos imports del proyecto son `android.*`, `androidx.*`,
 `com.nexora.android.*`, `kotlin(x).*` y `java.{io,nio,util,text}`.
 
-## Fase 4 (fuera de esta versión)
+## Decisiones de la Fase 4
+
+- **Kotlin puro en la capa de perfiles.** `PerformanceProfile`, `GameProfileHints`
+  y `AutoOptimizer` no importan nada de Android: se prueban en JVM y se pueden
+  reutilizar cuando el motor exista sin arrastrar dependencias de UI.
+- **Puntuación con motivos, no árbol de decisiones.** Cada regla es
+  independiente, así que cambiar el peso de una señal no reescribe las demás; y
+  la UI puede explicar por qué se recomienda algo en vez de pedir confianza
+  ciega.
+- **La GPU se deduce, no se consulta.** Android no expone el modelo de GPU sin
+  crear un contexto OpenGL; hacerlo solo para rellenar un dato informativo no
+  compensa. La clasificación por cadenas del sistema es suficiente para decidir
+  entre rutas gráficas y no cuesta nada.
+- **La API del juego se deduce de las librerías, no del binario.** Interpretar un
+  ejecutable de Windows está fuera del alcance de NEXORA; enumerar la carpeta
+  (lo que ya hacía el escáner) da la misma señal sin riesgo.
+- **Identificadores, no ordinales.** El perfil se guarda por `id` y se resuelve
+  con `PerformanceProfile.fromId`: añadir o reordenar perfiles no reinterpreta
+  bibliotecas guardadas.
+- **Migración aditiva, sin `destructiveMigration`.** Una columna nullable nueva
+  no justifica borrar la biblioteca del usuario.
+- **Los perfiles no se aplican a nada todavía.** Se calculan, se muestran y se
+  guardan; el runtime que los consumirá llega en una fase posterior.
+
+## Fase 5 (fuera de esta versión)
 
 - Integración del runtime de ejecución (y con ella el lanzamiento real de
-  "Jugar").
+  "Jugar" y la aplicación efectiva de los perfiles).
 - Alta manual de juegos.
 - Pantalla de ajustes persistidos (DataStore).

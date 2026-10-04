@@ -15,6 +15,11 @@ package com.nexora.android.engine
  * @property cpuCoreCount Núcleos disponibles para la JVM.
  * @property totalMemoryBytes Memoria total del dispositivo, en bytes.
  * @property availableMemoryBytes Memoria libre en el momento de la consulta.
+ * @property gpuVendor Fabricante deducido de la GPU (Mali, Adreno...).
+ * @property gpuRenderer Cadena de la que se dedujo el fabricante.
+ * @property glEsVersion Versión de OpenGL ES declarada por el sistema.
+ * @property isLowRamDevice `true` si el sistema marca el dispositivo como de
+ *   memoria reducida (`ActivityManager.isLowRamDevice`).
  */
 data class DeviceInfo(
     val manufacturer: String,
@@ -25,4 +30,19 @@ data class DeviceInfo(
     val cpuCoreCount: Int,
     val totalMemoryBytes: Long,
     val availableMemoryBytes: Long,
-)
+    val gpuVendor: GpuVendor = GpuVendor.UNKNOWN,
+    val gpuRenderer: String = "",
+    val glEsVersion: Int = 0,
+    val isLowRamDevice: Boolean = false,
+) {
+
+    /** Memoria total en gibibytes, para reglas y textos informativos. */
+    val totalMemoryGib: Double get() = totalMemoryBytes.toDouble() / BYTES_PER_GIB
+
+    /** Clase de hardware, calculada por [DeviceTier.of]. */
+    val tier: DeviceTier get() = DeviceTier.of(this)
+
+    private companion object {
+        const val BYTES_PER_GIB = 1_073_741_824.0
+    }
+}
