@@ -4,6 +4,8 @@ import com.nexora.android.engine.profile.CpuPriority
 import com.nexora.android.engine.profile.PerformanceParameters
 import com.nexora.android.engine.profile.PerformanceProfile
 import com.nexora.android.engine.profile.RenderBackend
+import com.nexora.android.runtime.audio.AudioComposer
+import com.nexora.android.runtime.audio.AudioSettings
 
 /**
  * Resultado de componer el entorno y el comando de lanzamiento.
@@ -59,6 +61,7 @@ class EnvironmentComposer {
         profileId: String,
         settings: EnvironmentSettings,
         prefixPathFor: (String) -> String,
+        audioSettings: AudioSettings = AudioSettings.DEFAULT,
     ): ComposedEnvironment {
         val warnings = mutableListOf<String>()
         val env = mutableMapOf<String, String>()
@@ -95,7 +98,14 @@ class EnvironmentComposer {
             env["NEXORA_WINETRICKS"] = settings.winetricksVerbs.joinToString(",")
         }
 
-        // 7) Avisos: el compositor no aborta por estas cosas, pero el runner
+        // 7) Audio (Fase 7): el compositor es la fuente única de env vars; las
+        //    del audio se inyectan aquí para que el motor no tenga que conocer
+        //    el formato ni los warnings.
+        val audio = AudioComposer.compose(audioSettings)
+        for ((k, v) in audio.environment) env[k] = v
+        warnings += audio.warnings
+
+        // 8) Avisos: el compositor no aborta por estas cosas, pero el runner
         //    las enseña al usuario.
         if (parameters.backend == RenderBackend.VULKAN &&
             settings.galliumDriver == GalliumDriver.SOFTPIPE
@@ -107,7 +117,7 @@ class EnvironmentComposer {
             warnings += "El perfil «$profileId» no reserva hilos de traducción."
         }
 
-        // 8) Línea de comandos: la decisión de qué binario concreto lanzar
+        // 9) Línea de comandos: la decisión de qué binario concreto lanzar
         //    (wine, wine64, box64, …) es del motor y depende del dispositivo.
         //    Mientras tanto, dejamos el `.exe` como argumento único para que el
         //    motor pueda reescribirlo.

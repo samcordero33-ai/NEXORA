@@ -131,6 +131,8 @@ fun GameRunnerRoute(
         onToggleHud = viewModel::setHudVisible,
         onSaveSettings = viewModel::saveSettings,
         onResetSettings = viewModel::resetSettings,
+        onSaveAudio = viewModel::saveAudioSettings,
+        onResetAudio = viewModel::resetAudioSettings,
         onGesture = { /* los gestos se envían al runtime en una fase posterior */ },
         onDismissMessage = viewModel::dismissMessages,
         modifier = modifier,
@@ -155,6 +157,8 @@ fun GameRunnerScreen(
     onToggleHud: (Boolean) -> Unit,
     onSaveSettings: (EnvironmentSettings) -> Unit,
     onResetSettings: () -> Unit,
+    onSaveAudio: (com.nexora.android.runtime.audio.AudioSettings) -> Unit,
+    onResetAudio: () -> Unit,
     onGesture: (InputEvent) -> Unit,
     onDismissMessage: () -> Unit,
     modifier: Modifier = Modifier,
@@ -230,6 +234,12 @@ fun GameRunnerScreen(
                     settings = uiState.settings,
                     onSave = onSaveSettings,
                     onReset = onResetSettings,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                AudioSettingsCard(
+                    settings = uiState.audioSettings,
+                    onSave = onSaveAudio,
+                    onReset = onResetAudio,
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -667,6 +677,89 @@ private fun EnumRow(
                         maxLines = 1,
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Tarjeta de ajustes de audio del juego (Fase 7).
+ *
+ * Es paralela a [EnvironmentSettingsCard], pero separada: el audio es ortogonal
+ * al resto del entorno y queremos poder restablecerlo independientemente.
+ */
+@Composable
+private fun AudioSettingsCard(
+    settings: com.nexora.android.runtime.audio.AudioSettings,
+    onSave: (com.nexora.android.runtime.audio.AudioSettings) -> Unit,
+    onReset: () -> Unit,
+) {
+    var draft by androidx.compose.runtime.remember(settings) {
+        androidx.compose.runtime.mutableStateOf(settings)
+    }
+
+    RuntimeSectionCard(title = stringResource(R.string.audio_section_title)) {
+        Text(
+            text = stringResource(R.string.audio_section_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = NexoraTextSecondary,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        EnumRow(
+            label = stringResource(R.string.audio_backend_label),
+            current = draft.backend.label,
+            options = com.nexora.android.runtime.audio.AudioBackend.entries.map { it.label },
+            onSelect = { idx ->
+                draft = draft.copy(
+                    backend = com.nexora.android.runtime.audio.AudioBackend.entries[idx],
+                )
+            },
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        EnumRow(
+            label = stringResource(R.string.audio_rate_label),
+            current = draft.sampleRate.label,
+            options = com.nexora.android.runtime.audio.AudioSampleRate.entries.map { it.label },
+            onSelect = { idx ->
+                draft = draft.copy(
+                    sampleRate = com.nexora.android.runtime.audio.AudioSampleRate.entries[idx],
+                )
+            },
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        EnumRow(
+            label = stringResource(R.string.audio_buffer_label),
+            current = draft.bufferFrames.label,
+            options = com.nexora.android.runtime.audio.AudioBufferFrames.entries.map { it.label },
+            onSelect = { idx ->
+                draft = draft.copy(
+                    bufferFrames = com.nexora.android.runtime.audio.AudioBufferFrames.entries[idx],
+                )
+            },
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { onSave(draft) },
+                modifier = Modifier.weight(1f).height(42.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NexoraAccent,
+                    contentColor = NexoraBackground,
+                ),
+            ) {
+                Icon(Icons.Outlined.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.size(4.dp))
+                Text("Guardar audio", style = MaterialTheme.typography.labelMedium)
+            }
+            OutlinedButton(
+                onClick = onReset,
+                modifier = Modifier.weight(1f).height(42.dp),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.size(4.dp))
+                Text("Restablecer", style = MaterialTheme.typography.labelMedium)
             }
         }
     }

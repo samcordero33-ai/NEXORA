@@ -1,4 +1,4 @@
-# NEXORA v0.6 — Fase 6
+# NEXORA v0.7 — Fase 7
 
 **Windows Gaming Runtime for Android.**
 
@@ -22,15 +22,24 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   vida completo (Preparar → Lanzar → Pausar → Reanudar → Kill) y captura de
   stdout/stderr en vivo, y **GameRunnerScreen** con HUD táctil integrado y
   monitor técnico flotante opcional (FPS, RAM, temperatura estimada).
+- **Fase 7 (v0.7, esta versión):** audio de **baja latencia** (backend
+  AAudio / OpenSL ES / PulseAudio, frecuencia 44,1 / 48 kHz y buffer en
+  frames con cálculo de latencia real), **caché y partidas guardadas**
+  (exportación e importación de `Savegames` en ZIP, limpieza de la caché de
+  sombreado DXVK y de temporales), **consola de diagnóstico** con visor en
+  vivo y exportación del registro a `.txt`, **ajustes globales** (tema,
+  animaciones, autoguardado de logs, almacenamiento y reseteo) y
+  **animaciones** de transición entre biblioteca, detalle y ejecución.
 
 > **El runtime sigue sin traer un motor real.** No hay Wine, Box64, FEX-Emu,
 > DXVK ni drivers Mesa/Turnip empaquetados, y **no se ejecuta ningún binario
 > de Windows**: el launcher (`AndroidBinaryResolver`) devuelve siempre `null`
 > y el motor falla de forma explícita con `BinaryNotInstalledException`. La
 > UI muestra la causa y los pasos para integrar el conector JNI/NDK en una
-> fase posterior.
+> fase posterior. La Fase 7 tampoco toca el sistema de audio de Android:
+> compone las **variables de entorno** que consumirá el motor cuando exista.
 >
-> **No avanza a la Fase 7.** El envío real de los `InputEvent` al proceso
+> **No avanza a la Fase 8.** El envío real de los `InputEvent` al proceso
 > del juego, el empaquetado de los binarios y la capa JNI/NDK son trabajo
 > de una versión posterior.
 
@@ -72,6 +81,20 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
 | Lanzador honesto: falla con `BinaryNotInstalledException` cuando no hay motor | ✔ `AndroidBinaryResolver` siempre devuelve `null` |
 | Migración Room aditiva 3 → 4 sin alterar datos previos | ✔ `MIGRATION_3_4` (nueva tabla, sin `ALTER`) |
 | Navegación por estado (sin Navigation Compose) y `BackHandler` encadenado | ✔ `runningGameId` en `ScannerUiState` |
+| **Audio de baja latencia (Fase 7)** | ✔ `AudioBackend` + `AudioSampleRate` + `AudioBufferFrames` + `AudioComposer` (función pura, 13 pruebas) |
+| Backend AAudio / OpenSL ES / PulseAudio seleccionable y persistido por juego | ✔ `NEXORA_AUDIO_BACKEND` + tabla `audio_settings` |
+| Frecuencia 44,1 / 48 kHz y tamaño de buffer ajustable con latencia mostrada | ✔ `NEXORA_AUDIO_RATE`, `NEXORA_AUDIO_BUFFER`, `AudioComposer.latencyMillis()` |
+| Prevención de chasquidos (crackling) | ✔ `preventClicks` → `PULSE_LATENCY_MSEC` + aviso cuando el buffer es demasiado pequeño |
+| **Caché y partidas guardadas (Fase 7)** | ✔ `SaveBackupArchive` / `SaveImporter` (ZIP con `java.util.zip`) |
+| Backup & Restore de `Savegames` entre el prefijo emulado y la memoria del teléfono | ✔ exportar e importar ZIP desde `SavesManagerScreen` |
+| Limpieza de la caché de sombreado DXVK y de temporales | ✔ `ShaderCacheCleaner` (`*.dxvk-cache`, `*_state_cache`) + `TempFileCleaner` |
+| **Consola de diagnóstico (Fase 7)** | ✔ `DiagnosticsLogger` (ring buffer) + `DiagnosticsScreen` |
+| Visor de logs en tiempo real con filtro por nivel | ✔ `DiagnosticsViewModel` + `Flow<List<DiagnosticsEvent>>` |
+| Exportación del registro completo a `.txt` y compartirlo | ✔ `LogExporter` + `FileProvider` (`nexora_file_paths.xml`) |
+| **Ajustes globales (Fase 7)** | ✔ `GlobalSettingsScreen` + tabla `global_preferences` |
+| Tema, animaciones y reseteo de ajustes/controles persistidos | ✔ `AppTheme`, `animationsEnabled`, `resetAll()` |
+| **Transiciones fluidas (Fase 7)** | ✔ `AnimatedContent` (slide + fade) en `HomeScreen` |
+| Migración Room aditiva 4 → 5 sin alterar datos previos | ✔ `MIGRATION_4_5` (dos tablas nuevas, sin `ALTER`) |
 
 ## Stack
 
@@ -107,6 +130,21 @@ com.nexora.android/
 │   │                           # TouchControlsOverlay, HudControls
 │   ├── util/Format.kt          # formateo de tamaños y fechas
 │   └── theme/{Color,Theme,Type}.kt
+├── runtime/                    # orquestador del motor (Fase 6) + audio/caché/diagnóstico (Fase 7)
+│   ├── audio/                  # AudioBackend, AudioSampleRate, AudioBufferFrames,
+│   │                           # AudioSettings, AudioComposer (función pura)
+│   ├── saves/                  # SaveBackupArchive, SaveImporter,
+│   │                           # ShaderCacheCleaner, TempFileCleaner
+│   ├── diagnostics/            # DiagnosticsEvent, DiagnosticsLogger (ring buffer),
+│   │                           # LogExporter (.txt)
+│   ├── preferences/            # AppTheme + GlobalPreferences
+│   └── repository/             # AudioSettingsRepository, GlobalPreferencesRepository
+├── ui/
+│   ├── saves/SavesViewModel.kt          # exportar / importar / limpiar
+│   ├── diagnostics/DiagnosticsViewModel.kt
+│   ├── settings/GlobalSettingsViewModel.kt
+│   ├── components/SharedComponents.kt   # MessageCard, EnumRow, RuntimeSectionCard
+│   └── screens/{SavesManagerScreen,DiagnosticsScreen,GlobalSettingsScreen}.kt
 ├── control/                    # HUD táctil (Fase 5)
 │   ├── model/
 │   │   ├── ControlAction.kt    # Ctrl+1/2/3, Shift, A, Espacio, D-Pad, Joystick
@@ -123,7 +161,7 @@ com.nexora.android/
 │   ├── data/local/
 │   │   ├── GameEntity.kt       # entidad Room + mapeo a dominio
 │   │   ├── GameDao.kt          # consultas y Flow sobre la tabla
-│   │   └── NexoraDatabase.kt   # RoomDatabase v3 + migraciones 1→2→3 (singleton)
+│   │   └── NexoraDatabase.kt   # RoomDatabase v5 + migraciones 1→2→3→4→5 (singleton)
 │   ├── scan/
 │   │   ├── GameScanner.kt      # recorrido SAF y por ruta de filesystem
 │   │   ├── ExecutableFilter.kt # heurísticas .exe (puras, sin Android)
@@ -380,6 +418,97 @@ resumen del entorno, tarjeta de **ajustes editables** con `Save`/`Reset`, y
 panel de logs. La navegación se hace con un único campo `runningGameId` en
 `ScannerUiState` y `BackHandler` encadenado.
 
+### `runtime/audio/` — audio de baja latencia (Fase 7)
+
+Tres perillas que **sí cambian lo que recibe el motor**, calculadas por una
+función pura (`AudioComposer.compose`) que no toca Android ni el sistema de
+audio: devuelve un mapa de variables de entorno, avisos y la latencia
+resultante en milisegundos.
+
+| Ajuste | Valores | Variable que emite |
+|---|---|---|
+| Backend | `aaudio`, `opensles`, `pulse` | `NEXORA_AUDIO_BACKEND` |
+| Frecuencia | 44 100 Hz, 48 000 Hz | `NEXORA_AUDIO_RATE` |
+| Buffer (frames) | 96, 192, 480, 1024 | `NEXORA_AUDIO_BUFFER` |
+| Antichasquidos | activado / desactivado | `PULSE_LATENCY_MSEC` |
+
+La latencia no se inventa: `latencyMillis(buffer, rate) = frames * 1000 / hz`
+redondeado hacia arriba, así que **96 frames a 48 kHz son 2 ms y 1024 frames a
+44,1 kHz son 24 ms**, y eso es lo que ve el usuario bajo el selector. Cuando el
+buffer elegido baja de ~4 ms y la prevención de chasquidos está activa, el
+compositor emite un aviso: por debajo de ese umbral, un SoC cargado produce
+*crackling* y conviene subir un escalón.
+
+Todo se resuelve con `fromWireValue(...)`: un valor guardado desconocido
+degrada al predeterminado (`pulse` / 48 kHz / 192 frames) en vez de romper el
+arranque. Igual que con los perfiles, se persiste el **identificador**, nunca
+el ordinal.
+
+### `runtime/saves/` — caché y partidas guardadas (Fase 7)
+
+El `WINEPREFIX` de cada juego vive en `filesDir/prefixes/<gameId>` (Fase 6), y
+ahí es donde un Wine real escribiría `drive_c/users/<usuario>/Documentos/My
+Games` o `Saved Games`. Como el motor no corre, la Fase 7 trabaja sobre esa
+ruta **emulada**: la empaqueta y la restaura, que es exactamente lo que hará
+cuando exista el motor.
+
+| Operación | Clase | Qué hace |
+|---|---|---|
+| Exportar | `SaveBackupArchive.pack(root, zip, prefix)` | recorre el prefijo y escribe un ZIP con rutas relativas |
+| Importar | `SaveImporter.extract(zip, targetDir)` | extrae **rechazando** rutas absolutas y `..` (zip-slip) |
+| Limpiar sombreado | `ShaderCacheCleaner.clean(prefix)` | borra `*.dxvk-cache` y `*_state_cache` |
+| Limpiar temporales | `TempFileCleaner.clean(dirs, deep)` | borra temporales recientes; `deep` añade subcarpetas |
+
+Dos decisiones que importan: el **import valida cada entrada** antes de
+escribirla (una ruta que se escapa del destino se rechaza y se reporta, no se
+escribe "por si acaso"), y **la limpieza nunca toca el `WINEPREFIX` fuera de
+las carpetas de caché**: borrar la caché de DXVK es reversible (se regenera),
+borrar una partida no lo es.
+
+### `runtime/diagnostics/` — consola de diagnóstico (Fase 7)
+
+- **`DiagnosticsEvent`** es inmutable: marca de tiempo, nivel (`DEBUG`, `INFO`,
+  `WARN`, `ERROR`), origen y mensaje, con `formatLine()` para el `.txt`.
+- **`DiagnosticsLogger`** mantiene un **ring buffer** acotado (por defecto 500
+  eventos) protegido con `synchronized`: la memoria no crece sin límite en una
+  sesión larga y el último tramo —que es el que importa cuando algo falla— no
+  se pierde. Expone `snapshot()`, `clear()` y un `Flow` para la UI.
+- **`LogExporter.export(events, output)`** escribe cabecera (versión,
+  dispositivo, fecha) + una línea por evento y devuelve el `File`, que se
+  comparte con un `Intent ACTION_SEND` a través de **`FileProvider`**
+  (`res/xml/nexora_file_paths.xml`). Sin `FileProvider` y sin
+  `file://` expuesto: a partir de Android 7 un `Uri` de archivo fuera de la app
+  lanza `FileUriExposedException`.
+
+La pantalla (`DiagnosticsScreen`) muestra el visor con **auto-scroll solo si el
+usuario ya estaba abajo** —la misma regla que el panel de logs de la Fase 6—,
+filtro por nivel mínimo, exportar, compartir y vaciar.
+
+### `ui/settings/` — ajustes globales (Fase 7)
+
+`GlobalPreferences` (tema, animaciones, autoguardado de logs y backend por
+defecto) + `AppTheme` se guardan en la tabla `global_preferences` de Room, con
+**una sola fila** (`SINGLETON_ID = 1`) y `Flow`. La pantalla ofrece:
+
+- **Tema**: oscuro / claro / seguir al sistema.
+- **Animaciones**: desactivarlas hace las transiciones instantáneas en
+  dispositivos muy antiguos.
+- **Autoguardado de logs**: exporta un `.txt` cuando el motor pasa a `Failed`.
+- **Almacenamiento**: cuánto ocupan los prefijos y su caché, con acceso directo
+  a la limpieza de la Fase 7.
+- **Reseteo**: ajustes globales, controles por juego y biblioteca, siempre con
+  confirmación y sin tocar los archivos originales.
+
+### Animaciones y transiciones (Fase 7)
+
+`HomeScreen` envuelve el enrutado en un único **`AnimatedContent`**: la pantalla
+que entra lo hace con `slideInHorizontally + fadeIn` en la dirección del
+recorrido (biblioteca → detalle → ejecución avanza; volver retrocede), y la que
+sale con `fadeOut + slideOutHorizontally`. La dirección se deriva del estado,
+no de la pila de navegación, así que no hay que mantener un historial paralelo.
+Si el usuario desactiva las animaciones en los ajustes globales, la transición
+dura `0 ms` y el contenido cambia en seco.
+
 ### `engine/profile/` — AutoOptimizer (Fase 4)
 
 El optimizador responde a una pregunta: **qué perfil le conviene a este juego en
@@ -602,6 +731,53 @@ Zoom ×1,60 en (360, 240)
 Cámara +18, -6
 ```
 
+Y desde el detalle del juego, las tres pantallas nuevas de la Fase 7:
+
+```
+← Partidas guardadas             Hollow Knight
+
+GUARDADO DEL PREFIJO
+Partidas detectadas    12 archivos · 4,3 MB
+Prefijo                filesDir/prefixes/hollow-knight
+
+[ ⬆ EXPORTAR A ZIP ]  [ ⬇ IMPORTAR ZIP ]
+
+CACHÉ DE SOMBRADO (DXVK)
+2 archivos · 384 KB       [ LIMPIAR CACHÉ ]
+TEMPORALES
+7 archivos recientes      [ LIMPIAR TEMPORALES ]
+```
+
+```
+← Diagnóstico                          NEXORA
+
+NIVEL MÍNIMO   [ DEBUG | INFO | WARN | ERROR ]
+12:04:11  INFO   runtime   Entorno compuesto: 14 variables
+12:04:11  WARN   audio     Buffer de 96 frames: riesgo de chasquidos
+12:04:12  ERROR  engine    BinaryNotInstalledException: wine64
+
+[ ⬆ EXPORTAR .TXT ]  [ ↗ COMPARTIR ]  [ 🗑 VACIAR ]
+```
+
+```
+← Ajustes globales
+
+APARIENCIA
+Tema            [ OSCURO | CLARO | SISTEMA ]
+Animaciones     [ ON ]
+
+DIAGNÓSTICO
+Autoexportar log al fallar  [ OFF ]
+
+ALMACENAMIENTO
+Prefijos de Wine        18,4 MB
+Caché de sombreado       384 KB   [ LIMPIAR ]
+
+RESETEO
+[ RESTABLECER AJUSTES ]  [ BORRAR CONTROLES ]
+[ VACIAR BIBLIOTECA ]        <- con confirmación
+```
+
 La barra de progreso del escaneo es **determinada**: mide la fracción del
 presupuesto de entradas consumida, no un porcentaje inventado del árbol (que no
 se conoce de antemano). Los contadores y la ruta actual acompañan a la barra
@@ -667,16 +843,23 @@ En cada push a `main`, GitHub Actions compila y publica el artefacto
 ## Verificación
 
 ```
-./gradlew assembleDebug      -> BUILD SUCCESSFUL (sin warnings)
-./gradlew assembleRelease    -> BUILD SUCCESSFUL (sin warnings)
-./gradlew testDebugUnitTest  -> 55 tests, 0 failures
+./gradlew assembleDebug      -> BUILD SUCCESSFUL
+./gradlew assembleRelease    -> BUILD SUCCESSFUL
+./gradlew testDebugUnitTest  -> 108 tests, 0 failures, 0 errors
 ```
 
 Reparto de pruebas: 9 del escáner (Fase 2), 8 del mapeo de la entidad + perfil
 (Fase 3/4), 9 del AutoOptimizer y 10 del catálogo de perfiles y la detección de
-pistas (Fase 4), 11 del motor de gestos y 8 del layout de controles (Fase 5).
-Todas JVM puras: ni Robolectric ni instrumentación, porque ninguna de estas
-clases toca Android.
+pistas (Fase 4), 11 del motor de gestos y 8 del layout de controles (Fase 5),
+26 del entorno y del motor (Fase 6) y **27 de la Fase 7** (13 de audio, 8 de
+partidas y caché, 6 de diagnóstico). Todas JVM puras: ni Robolectric ni
+instrumentación, porque ninguna de estas clases toca Android.
+
+Los únicos avisos del compilador son cuatro **desusos de
+`Icons.Outlined.ArrowBack`**: el BOM 2024.02.00 (`material-icons-extended
+1.6.1`) marca el icono como obsoleto apuntando a
+`Icons.AutoMirrored.Outlined.ArrowBack`, pero esa variante **no existe** en el
+artefacto (solo `ArrowBackIos`), así que se mantiene la versión sin espejo.
 
 Auditoría de librerías de escritorio, en dos niveles:
 
@@ -810,7 +993,42 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
   sin alterar las anteriores: los datos de las Fases 3-5 sobreviven
   intactos a la actualización.
 
-## Fase 7 (fuera de esta versión)
+## Decisiones de la Fase 7
+
+- **El audio se compone, no se reproduce.** `AudioComposer` es una función
+  pura que devuelve variables de entorno, avisos y latencia: se prueba en JVM
+  (13 pruebas) y no necesita un `AudioTrack` ni un permiso. Cuando el motor
+  exista, esas variables son exactamente las que leerá; hoy describen la
+  intención sin fingir que suena algo. La Fase 7 **no** abre ningún
+  `AudioTrack`, `Oboe` ni `AAudio`: eso llegaría con el conector JNI/NDK, y
+  hacerlo antes sería escribir un reproductor que nadie va a usar.
+- **La latencia se calcula, no se promete.** `frames * 1000 / hz` es aritmética
+  de buffer: es el dato honesto que se puede dar sin medir el dispositivo. El
+  aviso de chasquidos aparece por debajo de ~4 ms porque ahí empieza el
+  riesgo real en un SoC cargado, y se muestra **junto** al selector para que
+  el usuario entienda el cambio que está haciendo.
+- **El ZIP de partidas valida antes de escribir.** `SaveImporter` rechaza
+  entradas absolutas y con `..`; un ZIP de origen desconocido es una entrada
+  de red más, y el *zip-slip* es el fallo clásico de este patrón. Lo que se
+  rechaza se lista en la UI en vez de descartarse en silencio.
+- **La caché de sombreado es la única que se borra automáticamente.** DXVK
+  regenera su `*.dxvk-cache` en la siguiente sesión; una partida guardada no se
+  regenera. El limpiador distingue las dos cosas y nunca toca directorios de
+  guardado.
+- **El registro se acota en memoria.** Un ring buffer de 500 eventos: una
+  sesión de varias horas no crece sin límite y, cuando el motor falla, lo que
+  se exporta es justo el tramo final que explica el fallo. El `.txt` se
+  comparte por `FileProvider` porque exponer `file://` a otra app lanza
+  `FileUriExposedException` desde Android 7.
+- **Migración aditiva 4 → 5.** Dos tablas nuevas (`audio_settings` y
+  `global_preferences`), sin `ALTER` sobre las existentes: biblioteca, perfiles,
+  controles y configuración de entorno de las Fases 3-6 siguen intactos.
+- **Las transiciones se derivan del estado, no de una pila.** `AnimatedContent`
+  decide la dirección comparando el destino actual con el anterior, así que no
+  hay un historial de navegación que mantener sincronizado; y si el usuario
+  apaga las animaciones, el cambio es instantáneo y no queda código muerto.
+
+## Fase 8 (fuera de esta versión)
 
 - Empaquetado de los binarios de **Wine / Box64 (o FEX-Emu) / DXVK / drivers
   Mesa-Turnip** y conector **JNI/NDK** que materialice el
@@ -822,6 +1040,7 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
 - **Pausa real** (SIGSTOP/ptrace) en lugar del marcador de UI actual.
   Android no expone el API desde la JVM y el motor lo deja documentado.
 - **Alta manual de juegos** desde un `.exe` arbitrario.
-- **Pantalla de ajustes persistidos** con DataStore (idioma, DPI de los
-  controles, fps cap global, etc.).
+- **Ajustes finos de audio** (DPI de los controles, idioma, límite global de
+  FPS) y apertura real de un `AudioTrack`/Oboe: la Fase 7 compone las
+  variables, pero no reproduce nada.
 - **Cifrado del prefijo** y migración multi-juego.

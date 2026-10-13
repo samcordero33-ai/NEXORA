@@ -39,4 +39,10 @@ class ControlLayoutRepository(
         dao.deleteButtons(gameId)
         dao.deleteProfile(gameId)
     }
+
+    /** Vacía todos los perfiles del dispositivo (Fase 7, Ajustes Globales). */
+    suspend fun resetAllForDevice() {
+        dao.deleteAllButtons()
+        dao.deleteAllProfiles()
+    }
 }

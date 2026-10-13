@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -94,6 +95,7 @@ import com.nexora.android.ui.util.formatDateTime
  * @param onCopyPath Copia la ruta del ejecutable al portapapeles.
  * @param onRemove Quita el juego de la biblioteca. El archivo original no se
  *   toca: NEXORA nunca modifica ni ejecuta binarios de Windows.
+ * @param onOpenSaves Abre el gestor de partidas y caché (Fase 7).
  */
 @Composable
 fun GameDetailScreen(
@@ -108,6 +110,7 @@ fun GameDetailScreen(
     onChangeIcon: () -> Unit,
     onCopyPath: () -> Unit,
     onRemove: () -> Unit,
+    onOpenSaves: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var confirmRemoval by rememberSaveable { mutableStateOf(false) }
@@ -237,6 +240,27 @@ fun GameDetailScreen(
                 Spacer(modifier = Modifier.size(10.dp))
                 Text(
                     text = stringResource(R.string.action_play),
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = onOpenSaves,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Folder,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.size(10.dp))
+                Text(
+                    text = stringResource(R.string.action_open_saves),
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
@@ -578,6 +602,7 @@ private fun GameDetailScreenPreview() {
             onChangeIcon = {},
             onCopyPath = {},
             onRemove = {},
+            onOpenSaves = {},
         )
     }
 }

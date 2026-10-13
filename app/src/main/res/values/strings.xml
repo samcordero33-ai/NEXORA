@@ -179,4 +179,53 @@
     <string name="runtime_settings_saved">Ajustes del entorno guardados</string>
     <string name="runtime_settings_reset">Ajustes del entorno restablecidos</string>
     <string name="runtime_binary_missing">No se encontró un binario capaz de ejecutar «%1$s».</string>
+
+    <!-- Fase 7: audio, partidas, diagnóstico, ajustes globales -->
+    <string name="audio_section_title">Audio del juego</string>
+    <string name="audio_section_body">Backend, frecuencia de muestreo y tamaño de buffer. Solo aplica si tu motor usa PulseAudio/AAudio.</string>
+    <string name="audio_backend_label">Backend</string>
+    <string name="audio_rate_label">Frecuencia de muestreo</string>
+    <string name="audio_buffer_label">Tamaño de buffer</string>
+    <string name="audio_prevent_clicks">Evitar chasquidos al iniciar/parar</string>
+    <string name="audio_saved">Ajustes de audio guardados</string>
+    <string name="audio_reset">Ajustes de audio restablecidos</string>
+
+    <string name="saves_title">Partidas y caché</string>
+    <string name="saves_summary_title">Resumen del prefijo</string>
+    <string name="saves_prefix_size">Tamaño del prefijo</string>
+    <string name="saves_backup_title">Copia de seguridad de partidas</string>
+    <string name="saves_backup_body">Exporta el contenido de drive_c a un ZIP en la carpeta de documentos. La importación valida cada ruta para evitar entradas Zip Slip.</string>
+    <string name="saves_export">Exportar ZIP</string>
+    <string name="saves_import">Importar ZIP</string>
+    <string name="saves_cache_title">Caché de shaders</string>
+    <string name="saves_cache_body">Borra los archivos *.dxvk-cache y *_state_cache de DXVK. Se regeneran al iniciar el juego.</string>
+    <string name="saves_clean_shaders">Limpiar caché DXVK</string>
+    <string name="saves_temp_title">Archivos temporales</string>
+    <string name="saves_temp_body">Elimina archivos de menos de 7 días en los temporales de NEXORA y los prefijos de Wine.</string>
+    <string name="saves_clean_temp">Limpiar temporales</string>
+
+    <string name="diagnostics_title">Consola de diagnóstico</string>
+    <string name="diagnostics_export">Exportar a .txt</string>
+    <string name="diagnostics_share">Compartir</string>
+    <string name="diagnostics_clear">Vaciar log</string>
+    <string name="diagnostics_count">Mostrando %1$d de %2$d eventos</string>
+    <string name="diagnostics_empty">Sin eventos todavía. Inicia un juego o usa las opciones de la app.</string>
+    <string name="diagnostics_notice">El log solo contiene eventos de la app, no del sistema. Para soporte, comparte el archivo exportado.</string>
+
+    <string name="settings_title">Ajustes de NEXORA</string>
+    <string name="settings_appearance">Apariencia</string>
+    <string name="settings_theme">Tema</string>
+    <string name="settings_animations">Animaciones de UI</string>
+    <string name="settings_animations_body">Si las desactivas, las transiciones entre pantallas serán instantáneas.</string>
+    <string name="settings_runtime">Ejecución</string>
+    <string name="settings_auto_export">Exportar log automáticamente en errores</string>
+    <string name="settings_auto_export_body">Cuando el motor marca Failed, se escribe un .txt con el último snapshot.</string>
+    <string name="settings_default_backend">Backend de audio por defecto</string>
+    <string name="settings_danger">Restablecer</string>
+    <string name="settings_reset_body">Borra la biblioteca, los controles personalizados y deja los ajustes como la primera vez.</string>
+    <string name="settings_reset">Restablecer todo</string>
+
+    <string name="action_open_settings">Ajustes</string>
+    <string name="action_open_diagnostics">Diagnóstico</string>
+    <string name="action_open_saves">Partidas</string>
 </resources>

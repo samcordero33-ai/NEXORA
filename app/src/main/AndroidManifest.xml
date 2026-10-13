@@ -52,6 +52,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Fase 7: FileProvider para compartir logs de diagnóstico como .txt.
+          La autoridad debe coincidir con la usada por DiagnosticsViewModel.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/nexora_file_paths" />
+        </provider>
     </application>
 
 </manifest>

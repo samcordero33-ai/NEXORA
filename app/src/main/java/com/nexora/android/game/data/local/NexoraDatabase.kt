@@ -9,6 +9,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.nexora.android.control.data.local.ControlButtonEntity
 import com.nexora.android.control.data.local.ControlLayoutDao
 import com.nexora.android.control.data.local.ControlProfileEntity
+import com.nexora.android.runtime.data.local.AudioSettingsDao
+import com.nexora.android.runtime.data.local.AudioSettingsEntity
+import com.nexora.android.runtime.data.local.GlobalPreferencesDao
+import com.nexora.android.runtime.data.local.GlobalPreferencesEntity
 import com.nexora.android.runtime.data.local.RuntimeConfigDao
 import com.nexora.android.runtime.data.local.RuntimeConfigEntity
 
@@ -24,11 +28,12 @@ import com.nexora.android.runtime.data.local.RuntimeConfigEntity
  * Versión 4: se añade `runtime_configs`, los ajustes del entorno de ejecución
  * (DXVK, Box64, Mesa, WINEPREFIX) por juego (Fase 6).
  *
- * Las migraciones son **manuales** y aditivas. La de la Fase 4 añade una columna
- * nullable (las filas ya guardadas siguen en automático), la de la Fase 5
- * crea dos tablas nuevas sin tocar `games` y la de la Fase 6 añade una tabla
- * más sin tocar las anteriores: un juego escaneado con la versión 3 conserva
- * su biblioteca, su icono, su perfil y su HUD.
+ * Versión 5: se añaden `audio_settings` (overrides de audio por juego) y
+ * `global_preferences` (singleton con tema y flags) — Fase 7.
+ *
+ * Las migraciones son **manuales** y aditivas: cada fase crea tablas nuevas
+ * sin tocar las anteriores. Una base de datos de la versión 3 sigue teniendo
+ * su biblioteca, su icono, su perfil y su HUD al actualizarse a 5.
  *
  * Es intencionadamente pequeña: aquí no se guarda nada del runtime de
  * ejecución, solo la biblioteca que el usuario ha detectado y cómo quiere
@@ -41,8 +46,10 @@ import com.nexora.android.runtime.data.local.RuntimeConfigEntity
         ControlProfileEntity::class,
         ControlButtonEntity::class,
         RuntimeConfigEntity::class,
+        AudioSettingsEntity::class,
+        GlobalPreferencesEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class NexoraDatabase : RoomDatabase() {
@@ -52,6 +59,10 @@ abstract class NexoraDatabase : RoomDatabase() {
     abstract fun controlLayoutDao(): ControlLayoutDao
 
     abstract fun runtimeConfigDao(): RuntimeConfigDao
+
+    abstract fun audioSettingsDao(): AudioSettingsDao
+
+    abstract fun globalPreferencesDao(): GlobalPreferencesDao
 
     companion object {
 
@@ -110,6 +121,34 @@ abstract class NexoraDatabase : RoomDatabase() {
             }
         }
 
+        /** Fase 7: tabla de audio por juego + preferencias globales singleton. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `audio_settings` (" +
+                        "`gameId` TEXT NOT NULL, " +
+                        "`backend` TEXT NOT NULL, " +
+                        "`sampleRate` TEXT NOT NULL, " +
+                        "`bufferFrames` TEXT NOT NULL, " +
+                        "`preventClicks` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`gameId`)" +
+                        ")",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `global_preferences` (" +
+                        "`id` INTEGER NOT NULL, " +
+                        "`theme` TEXT NOT NULL, " +
+                        "`animationsEnabled` INTEGER NOT NULL, " +
+                        "`autoExportLogs` INTEGER NOT NULL, " +
+                        "`defaultBackend` TEXT NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`)" +
+                        ")",
+                )
+            }
+        }
+
         @Volatile
         private var instance: NexoraDatabase? = null
 
@@ -127,7 +166,7 @@ abstract class NexoraDatabase : RoomDatabase() {
                     NexoraDatabase::class.java,
                     DATABASE_NAME,
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { created -> instance = created }
             }

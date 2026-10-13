@@ -3,6 +3,12 @@ package com.nexora.android.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -62,7 +69,6 @@ import com.nexora.android.ui.components.SectionHeader
 import com.nexora.android.ui.components.StorageAccessCard
 import com.nexora.android.ui.scanner.GameScannerViewModel
 import com.nexora.android.ui.scanner.ScannerUiState
-import com.nexora.android.ui.screens.GameRunnerRoute
 import com.nexora.android.ui.theme.NexoraAccent
 import com.nexora.android.ui.theme.NexoraAccentMuted
 import com.nexora.android.ui.theme.NexoraBackground
@@ -77,19 +83,19 @@ private const val BYTES_PER_GIGABYTE = 1024.0 * 1024.0 * 1024.0
 /** Ancho mínimo de una tarjeta de la biblioteca. */
 private val LIBRARY_CARD_MIN_WIDTH = 168.dp
 
+/** Identifica la pantalla activa para las animaciones de [NexoraHomeRoute]. */
+private enum class HomeScreen { LIBRARY, DETAIL, EDITOR, RUNNER, SETTINGS, DIAGNOSTICS, SAVES }
+
 /**
  * Ruta de la pantalla principal: une el ViewModel con las pantallas puras.
  *
  * Aquí viven los efectos que sí necesitan un `Context` o un ciclo de vida: el
  * selector de carpetas del sistema, la petición del permiso clásico de lectura y
- * la consulta de los datos del dispositivo. [NexoraHomeScreen] y
- * [GameDetailScreen] se quedan sin dependencias de Android, así que se pueden
- * previsualizar.
+ * la consulta de los datos del dispositivo.
  *
- * La navegación es **estado** (`ScannerUiState.selectedGameId`): no hay
- * Navigation Compose ni back stack propio. Con dos pantallas, el grafo de
- * navegación sería más código que la propia navegación, y el estado sobrevive
- * solo a los cambios de configuración.
+ * La navegación es **estado** (`ScannerUiState.*`): no hay Navigation Compose
+ * ni back stack propio. Las transiciones entre pantallas se hacen con
+ * [AnimatedContent] para que el cambio sea suave (Fase 7).
  */
 @Composable
 fun NexoraHomeRoute(
@@ -99,8 +105,6 @@ fun NexoraHomeRoute(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // Los datos del dispositivo los lee el ViewModel: los necesita el
-    // AutoOptimizer, no solo esta pantalla.
     val deviceInfo = uiState.deviceInfo
 
     val folderPicker = rememberLauncherForActivityResult(
@@ -120,8 +124,6 @@ fun NexoraHomeRoute(
         }
     }
 
-    // El acceso amplio se concede desde Ajustes: al volver hay que releerlo,
-    // porque el sistema no notifica el cambio a la aplicación.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -131,8 +133,6 @@ fun NexoraHomeRoute(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // El juego abierto en detalle; se deriva del estado para que la pantalla
-    // vuelva sola a la biblioteca si el juego se borra.
     val selectedGame = remember(uiState.games, uiState.selectedGameId) {
         uiState.selectedGameId?.let { id -> uiState.games.firstOrNull { it.id == id } }
     }
@@ -143,78 +143,118 @@ fun NexoraHomeRoute(
     )
 
     val runningGame = uiState.runningGameId?.let { id -> uiState.games.firstOrNull { it.id == id } }
+    val savesGame = uiState.savesGameId?.let { id -> uiState.games.firstOrNull { it.id == id } }
 
-    BackHandler(enabled = runningGame != null) { viewModel.closeGameRunner() }
-    BackHandler(enabled = editingControls && runningGame == null) { viewModel.closeControlEditor() }
-    BackHandler(enabled = selectedGame != null && !editingControls && runningGame == null) {
-        viewModel.closeGameDetail()
+    val target = when {
+        runningGame != null -> HomeScreen.RUNNER
+        editingControls && selectedGame != null -> HomeScreen.EDITOR
+        uiState.showsDiagnostics -> HomeScreen.DIAGNOSTICS
+        uiState.showsGlobalSettings -> HomeScreen.SETTINGS
+        savesGame != null -> HomeScreen.SAVES
+        selectedGame != null -> HomeScreen.DETAIL
+        else -> HomeScreen.LIBRARY
     }
 
-    if (runningGame != null) {
-        GameRunnerRoute(
-            gameId = runningGame.id,
-            controlLayout = controlLayout,
-            onBack = viewModel::closeGameRunner,
-            modifier = modifier,
-        )
-    } else if (editingControls && selectedGame != null) {
-        ControlEditorScreen(
-            gameName = selectedGame.name,
-            layout = controlLayout,
-            onBack = viewModel::closeControlEditor,
-            onSave = viewModel::saveControlLayout,
-            onReset = viewModel::resetControlLayout,
-            onOpacityChange = viewModel::setOverlayOpacity,
-            onDragBoxChange = viewModel::setDragBoxEnabled,
-            onMoveControl = { action, x, y -> viewModel.moveControl(action, x, y) },
-            onResizeControl = viewModel::resizeControl,
-            onToggleVisibility = viewModel::toggleControlVisibility,
-            modifier = modifier,
-        )
-    } else if (selectedGame != null) {
-        GameDetailScreen(
-            game = selectedGame,
-            onBack = viewModel::closeGameDetail,
-            profileRecommendation = uiState.profileRecommendation,
-            customParameters = uiState.customParameters,
-            onSelectProfile = { profile -> viewModel.selectProfile(selectedGame.id, profile) },
-            controlLayout = uiState.controlLayout,
-            onEditControls = { viewModel.openControlEditor(selectedGame.id) },
-            onPlay = { viewModel.requestPlay(selectedGame) },
-            onChangeIcon = { viewModel.cycleGameIcon(selectedGame.id) },
-            onCopyPath = viewModel::notifyPathCopied,
-            onRemove = { viewModel.removeGame(selectedGame.id) },
-            modifier = modifier,
-        )
-    } else {
-        NexoraHomeScreen(
-            uiState = uiState,
-            deviceInfo = deviceInfo,
-            onOpenGame = viewModel::openGameDetail,
-            onPlayGame = viewModel::requestPlay,
-            onScanFolder = { folderPicker.launch(null) },
-            onFindGames = viewModel::scanCommonDirectories,
-            onClearLibrary = viewModel::clearLibrary,
-            onGrantAllFilesAccess = {
-                viewModel.allFilesAccessIntent()?.let { context.startActivity(it) }
-            },
-            onDismissMessages = viewModel::dismissMessages,
-            modifier = modifier,
-        )
+    BackHandler(enabled = runningGame != null) { viewModel.closeGameRunner() }
+    BackHandler(
+        enabled = uiState.showsDiagnostics && runningGame == null,
+    ) { viewModel.closeDiagnostics() }
+    BackHandler(
+        enabled = uiState.showsGlobalSettings && runningGame == null && !uiState.showsDiagnostics,
+    ) { viewModel.closeGlobalSettings() }
+    BackHandler(
+        enabled = savesGame != null && runningGame == null,
+    ) { viewModel.closeSavesManager() }
+    BackHandler(
+        enabled = editingControls && runningGame == null,
+    ) { viewModel.closeControlEditor() }
+    BackHandler(
+        enabled = selectedGame != null && !editingControls && runningGame == null &&
+            savesGame == null && !uiState.showsDiagnostics && !uiState.showsGlobalSettings,
+    ) { viewModel.closeGameDetail() }
+
+    AnimatedContent(
+        targetState = target,
+        transitionSpec = {
+            val forward = targetState.ordinal >= initialState.ordinal
+            val direction = if (forward) 1 else -1
+            (slideInHorizontally(initialOffsetX = { it * direction }) + fadeIn())
+                .togetherWith(slideOutHorizontally(targetOffsetX = { -it * direction }) + fadeOut())
+        },
+        label = "home-screen-transition",
+        modifier = modifier,
+    ) { screen ->
+        when (screen) {
+            HomeScreen.RUNNER -> {
+                GameRunnerRoute(
+                    gameId = runningGame!!.id,
+                    controlLayout = controlLayout,
+                    onBack = viewModel::closeGameRunner,
+                )
+            }
+            HomeScreen.EDITOR -> {
+                ControlEditorScreen(
+                    gameName = selectedGame!!.name,
+                    layout = controlLayout,
+                    onBack = viewModel::closeControlEditor,
+                    onSave = viewModel::saveControlLayout,
+                    onReset = viewModel::resetControlLayout,
+                    onOpacityChange = viewModel::setOverlayOpacity,
+                    onDragBoxChange = viewModel::setDragBoxEnabled,
+                    onMoveControl = { action, x, y -> viewModel.moveControl(action, x, y) },
+                    onResizeControl = viewModel::resizeControl,
+                    onToggleVisibility = viewModel::toggleControlVisibility,
+                )
+            }
+            HomeScreen.DETAIL -> {
+                GameDetailScreen(
+                    game = selectedGame!!,
+                    onBack = viewModel::closeGameDetail,
+                    profileRecommendation = uiState.profileRecommendation,
+                    customParameters = uiState.customParameters,
+                    onSelectProfile = { profile -> viewModel.selectProfile(selectedGame.id, profile) },
+                    controlLayout = uiState.controlLayout,
+                    onEditControls = { viewModel.openControlEditor(selectedGame.id) },
+                    onPlay = { viewModel.requestPlay(selectedGame) },
+                    onChangeIcon = { viewModel.cycleGameIcon(selectedGame.id) },
+                    onCopyPath = viewModel::notifyPathCopied,
+                    onRemove = { viewModel.removeGame(selectedGame.id) },
+                    onOpenSaves = { viewModel.openSavesManager(selectedGame.id) },
+                )
+            }
+            HomeScreen.DIAGNOSTICS -> {
+                DiagnosticsRoute(onBack = viewModel::closeDiagnostics)
+            }
+            HomeScreen.SETTINGS -> {
+                GlobalSettingsRoute(onBack = viewModel::closeGlobalSettings)
+            }
+            HomeScreen.SAVES -> {
+                SavesManagerRoute(
+                    gameId = savesGame!!.id,
+                    onBack = viewModel::closeSavesManager,
+                )
+            }
+            HomeScreen.LIBRARY -> {
+                NexoraHomeScreen(
+                    uiState = uiState,
+                    deviceInfo = deviceInfo,
+                    onOpenGame = viewModel::openGameDetail,
+                    onPlayGame = viewModel::requestPlay,
+                    onScanFolder = { folderPicker.launch(null) },
+                    onFindGames = viewModel::scanCommonDirectories,
+                    onClearLibrary = viewModel::clearLibrary,
+                    onGrantAllFilesAccess = {
+                        viewModel.allFilesAccessIntent()?.let { context.startActivity(it) }
+                    },
+                    onOpenSettings = viewModel::openGlobalSettings,
+                    onOpenDiagnostics = viewModel::openDiagnostics,
+                    onDismissMessages = viewModel::dismissMessages,
+                )
+            }
+        }
     }
 }
 
-/**
- * Pantalla principal de NEXORA.
- *
- * Compuesta por: encabezado de marca, biblioteca de juegos en grilla, acciones
- * de escaneo, estado del almacenamiento e información del dispositivo.
- *
- * El contenedor es una `LazyVerticalGrid` con celdas adaptativas: las tarjetas
- * ocupan el ancho que toque y el resto de secciones se emiten a span completo.
- * Así la grilla se desplaza con la página en un solo contenedor perezoso (una
- * grilla anidada dentro de una lista no está permitida en Compose).
- */
 @Composable
 fun NexoraHomeScreen(
     uiState: ScannerUiState,
@@ -225,6 +265,8 @@ fun NexoraHomeScreen(
     onFindGames: () -> Unit,
     onClearLibrary: () -> Unit,
     onGrantAllFilesAccess: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
     onDismissMessages: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -242,7 +284,14 @@ fun NexoraHomeScreen(
             item(span = { GridItemSpan(maxLineSpan) }) { NexoraHeader() }
 
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Spacer(modifier = Modifier.height(16.dp))
+                AppActions(
+                    onOpenSettings = onOpenSettings,
+                    onOpenDiagnostics = onOpenDiagnostics,
+                )
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Spacer(modifier = Modifier.height(8.dp))
                 SectionHeader(title = stringResource(R.string.section_my_games))
             }
 
@@ -330,6 +379,31 @@ fun NexoraHomeScreen(
     }
 }
 
+/**
+ * Accesos directos a "Ajustes" y "Diagnóstico" en la cabecera.
+ *
+ * Fase 7: estos dos botones reemplazan la antigua fila de iconos mudos.
+ */
+@Composable
+private fun AppActions(
+    onOpenSettings: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Outlined.Settings, contentDescription = null)
+            Spacer(modifier = Modifier.size(6.dp))
+            Text(stringResource(R.string.action_open_settings))
+        }
+        OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Outlined.Memory, contentDescription = null)
+            Spacer(modifier = Modifier.size(6.dp))
+            Text(stringResource(R.string.action_open_diagnostics))
+        }
+    }
+}
+
 @Composable
 private fun NexoraHeader(
     modifier: Modifier = Modifier,
@@ -349,15 +423,6 @@ private fun NexoraHeader(
     }
 }
 
-/**
- * Acciones de descubrimiento de juegos.
- *
- * Son dos caminos deliberadamente distintos:
- * - **Escanear carpeta** abre el selector del sistema y no necesita ningún
- *   permiso: el usuario concede acceso solo a esa carpeta.
- * - **Buscar juegos** recorre las carpetas habituales del dispositivo y de la
- *   microSD, y por eso sí necesita acceso amplio al almacenamiento.
- */
 @Composable
 private fun ScanActions(
     isScanning: Boolean,
@@ -418,12 +483,6 @@ private fun ScanActions(
     }
 }
 
-/**
- * Mensaje de resultado o de error del último escaneo.
- *
- * El resumen dice cuántos ejecutables se descartaron a propósito: sin ese dato,
- * el usuario no sabe si el escáner no los vio o si los filtró.
- */
 @Composable
 private fun ScanMessageCard(
     message: String,
@@ -447,7 +506,6 @@ private fun ScanMessageCard(
     }
 }
 
-/** Estado vacío de la biblioteca: limpio y con la acción siguiente a la vista. */
 @Composable
 private fun EmptyGameLibrary(
     modifier: Modifier = Modifier,
@@ -609,12 +667,6 @@ private fun formatGigabytes(bytes: Long): String {
     return String.format("%.2f GB", bytes / BYTES_PER_GIGABYTE)
 }
 
-/**
- * Traduce la versión de OpenGL ES que codifica el sistema.
- *
- * `reqGlEsVersion` guarda la mayor en la parte alta y la menor en la baja:
- * `0x00030002` es GL ES 3.2.
- */
 private fun formatGlEsVersion(version: Int): String = if (version <= 0) {
     "-"
 } else {
@@ -634,6 +686,8 @@ private fun NexoraHomeScreenPreview() {
             onFindGames = {},
             onClearLibrary = {},
             onGrantAllFilesAccess = {},
+            onOpenSettings = {},
+            onOpenDiagnostics = {},
             onDismissMessages = {},
         )
     }

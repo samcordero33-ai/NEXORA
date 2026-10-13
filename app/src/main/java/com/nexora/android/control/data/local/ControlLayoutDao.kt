@@ -33,4 +33,11 @@ interface ControlLayoutDao {
 
     @Query("DELETE FROM control_profiles WHERE gameId = :gameId")
     suspend fun deleteProfile(gameId: String)
+
+    /** Borrado global (Fase 7): vacía todos los perfiles del dispositivo. */
+    @Query("DELETE FROM control_buttons")
+    suspend fun deleteAllButtons()
+
+    @Query("DELETE FROM control_profiles")
+    suspend fun deleteAllProfiles()
 }

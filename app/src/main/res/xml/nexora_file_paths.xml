@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Rutas válidas para FileProvider. Solo expone:
+      - La carpeta interna files/exports/ donde DiagnosticsViewModel escribe
+        los logs .txt.
+      - Las raíces de la app (sin permisos externos).
+    -->
+    <files-path
+        name="nexora_exports"
+        path="exports/" />
+    <cache-path
+        name="nexora_cache"
+        path="." />
+</paths>

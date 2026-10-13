@@ -65,6 +65,10 @@ import kotlinx.coroutines.launch
  *   del editor. La navegación sigue siendo estado: no hay grafo que mantener.
  * @property runningGameId Juego abierto en la pantalla de ejecución (Fase 6).
  *   `null` si no hay ninguna sesión de juego abierta.
+ * @property showsGlobalSettings Si la pantalla de Ajustes Globales está visible
+ *   (Fase 7).
+ * @property showsDiagnostics Si la consola de diagnóstico está visible.
+ * @property savesGameId Juego cuyo gestor de partidas/caché está abierto.
  */
 data class ScannerUiState(
     val games: List<Game> = emptyList(),
@@ -82,6 +86,9 @@ data class ScannerUiState(
     val controlLayout: ControlLayout? = null,
     val controlEditorGameId: String? = null,
     val runningGameId: String? = null,
+    val showsGlobalSettings: Boolean = false,
+    val showsDiagnostics: Boolean = false,
+    val savesGameId: String? = null,
 )
 
 /**
@@ -388,6 +395,50 @@ class GameScannerViewModel(
     fun closeGameRunner() {
         mutableUiState.update {
             it.copy(runningGameId = null)
+        }
+    }
+
+    // --- Fase 7: pantallas auxiliares --------------------------------------
+
+    /** Abre la pantalla de Ajustes Globales. */
+    fun openGlobalSettings() {
+        mutableUiState.update {
+            it.copy(showsGlobalSettings = true)
+        }
+    }
+
+    /** Cierra la pantalla de Ajustes Globales. */
+    fun closeGlobalSettings() {
+        mutableUiState.update {
+            it.copy(showsGlobalSettings = false)
+        }
+    }
+
+    /** Abre la consola de diagnóstico. */
+    fun openDiagnostics() {
+        mutableUiState.update {
+            it.copy(showsDiagnostics = true)
+        }
+    }
+
+    /** Cierra la consola de diagnóstico. */
+    fun closeDiagnostics() {
+        mutableUiState.update {
+            it.copy(showsDiagnostics = false)
+        }
+    }
+
+    /** Abre el gestor de partidas y caché del juego. */
+    fun openSavesManager(gameId: String) {
+        mutableUiState.update {
+            it.copy(savesGameId = gameId)
+        }
+    }
+
+    /** Cierra el gestor de partidas y caché. */
+    fun closeSavesManager() {
+        mutableUiState.update {
+            it.copy(savesGameId = null)
         }
     }
 

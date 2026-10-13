@@ -11,6 +11,10 @@ import com.nexora.android.engine.profile.ProfileRecommendation
 import com.nexora.android.game.data.local.NexoraDatabase
 import com.nexora.android.game.model.Game
 import com.nexora.android.game.repository.GameLibraryRepository
+import com.nexora.android.runtime.audio.AudioSettings
+import com.nexora.android.runtime.diagnostics.DiagnosticsLogger
+import com.nexora.android.runtime.engine.AndroidProcessLauncher
+import com.nexora.android.runtime.engine.RuntimeEngine
 import com.nexora.android.runtime.env.ComposedEnvironment
 import com.nexora.android.runtime.env.EnvironmentComposer
 import com.nexora.android.runtime.env.EnvironmentSettings
@@ -20,10 +24,8 @@ import com.nexora.android.runtime.monitor.RuntimeMonitorSnapshot
 import com.nexora.android.runtime.monitor.RuntimeMonitorSource
 import com.nexora.android.runtime.model.RuntimeLog
 import com.nexora.android.runtime.model.RuntimeStatus
+import com.nexora.android.runtime.repository.AudioSettingsRepository
 import com.nexora.android.runtime.repository.RuntimeConfigRepository
-import com.nexora.android.runtime.engine.AndroidProcessLauncher
-import com.nexora.android.runtime.engine.ProcessHandle
-import com.nexora.android.runtime.engine.RuntimeEngine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,33 +42,11 @@ import kotlinx.coroutines.withContext
  * Es una única data class inmutable: la pantalla es una función pura de
  * este estado, lo que la hace previewable y testeable. La complejidad del
  * motor (preparación, pausa, logs) se traduce aquí en un campo.
- *
- * @property game Juego en ejecución; `null` si el ViewModel aún no ha
- *   cargado nada.
- * @property settings Ajustes del entorno para este juego, observados de
- *   Room. Cambian en vivo.
- * @property parameters Parámetros efectivos del perfil (los del manual o los
- *   del Auto Personalizado, si el usuario eligió automático).
- * @property profileId Identificador del perfil activo, o `null` si decide
- *   el AutoOptimizer.
- * @property recommendation Recomendación del AutoOptimizer, si está
- *   calculada.
- * @property composed Resultado del compositor: variables, advertencias y
- *   comando. `null` antes de pulsar "Preparar entorno".
- * @property warnings Advertencias de la fase de preparación, mostradas al
- *   usuario antes del primer lanzamiento.
- * @property status Estado del [RuntimeEngine].
- * @property logs Logs del proceso (últimas N líneas; los anteriores se
- *   descartan).
- * @property monitor Monitor técnico (FPS, RAM, temperatura).
- * @property monitorVisible Si la UI está mostrando el monitor flotante.
- * @property hudVisible Si la UI está mostrando la capa de controles táctil.
- * @property infoMessage Mensaje informativo no bloqueante.
- * @property errorMessage Mensaje de error no bloqueante.
  */
 data class RuntimeUiState(
     val game: Game? = null,
     val settings: EnvironmentSettings = EnvironmentSettings.DEFAULT,
+    val audioSettings: AudioSettings = AudioSettings.DEFAULT,
     val parameters: PerformanceParameters = PerformanceProfile.MID_COMPATIBILITY.parameters,
     val profileId: String? = null,
     val recommendation: ProfileRecommendation? = null,
@@ -92,12 +72,8 @@ data class RuntimeUiState(
  * ViewModel de la pantalla de ejecución.
  *
  * Une los repositorios de la Fase 3 (biblioteca), Fase 4 (perfiles),
- * Fase 5 (controles) y Fase 6 (entorno) con el [RuntimeEngine] y el monitor
- * técnico.
- *
- * Es **deliberadamente no singleton**: cuando el usuario sale de la pantalla
- * se llama a [shutdown] y el motor libera el proceso. Volver a entrar crea
- * un ViewModel nuevo.
+ * Fase 5 (controles), Fase 6 (entorno) y Fase 7 (audio) con el
+ * [RuntimeEngine] y el monitor técnico.
  */
 class RuntimeViewModel(
     application: Application,
@@ -106,6 +82,7 @@ class RuntimeViewModel(
     private val database = NexoraDatabase.getInstance(application)
     private val gameRepository = GameLibraryRepository(database.gameDao())
     private val configRepository = RuntimeConfigRepository(database.runtimeConfigDao())
+    private val audioRepository = AudioSettingsRepository(database.audioSettingsDao())
     private val controlRepository = ControlLayoutRepository(database.controlLayoutDao())
     private val composer = EnvironmentComposer()
     private val autoOptimizer = AutoOptimizer()
@@ -120,30 +97,41 @@ class RuntimeViewModel(
     private var monitorJob: Job? = null
     private var logsJob: Job? = null
     private var configJob: Job? = null
+    private var audioJob: Job? = null
     private var gameJob: Job? = null
 
     init {
         viewModelScope.launch {
             engine.status.collect { status ->
                 mutableUiState.update { it.copy(status = status) }
+                if (status is RuntimeStatus.Failed) {
+                    DiagnosticsLogger.shared.record(
+                        level = com.nexora.android.runtime.diagnostics.DiagnosticsLevel.ERROR,
+                        source = "engine",
+                        message = "Estado Failed: ${status.reason}",
+                    )
+                }
             }
         }
     }
 
     /**
      * Carga el juego solicitado y prepara todas las observaciones.
-     *
-     * Se puede llamar más de una vez (al cambiar de juego), pero **antes**
-     * de [shutdown].
      */
     fun loadGame(gameId: String) {
         viewModelScope.launch {
             val game = gameRepository.gameById(gameId) ?: return@launch
             mutableUiState.update { it.copy(game = game) }
             observeConfiguration(gameId)
+            observeAudio(gameId)
             observeLogs()
             gameJob = viewModelScope.launch { observeGame(gameId) }
             computeRecommendation(game)
+            DiagnosticsLogger.shared.record(
+                level = com.nexora.android.runtime.diagnostics.DiagnosticsLevel.INFO,
+                source = "app",
+                message = "Cargando ${game.name} (${gameId})",
+            )
         }
     }
 
@@ -169,6 +157,7 @@ class RuntimeViewModel(
             profileId = state.profileId ?: state.recommendation?.profile?.id ?: PerformanceProfile.AUTO_CUSTOM.id,
             settings = state.settings,
             prefixPathFor = EnvironmentComposer.prefixPathFor(getApplication<Application>().filesDir.absolutePath),
+            audioSettings = state.audioSettings,
         )
 
         // Crea el prefijo en disco. Va en IO; el motor sigue en memoria.
@@ -238,6 +227,30 @@ class RuntimeViewModel(
         }
     }
 
+    /** Persiste los ajustes de audio del juego. */
+    fun saveAudioSettings(settings: AudioSettings) {
+        val gameId = mutableUiState.value.game?.id ?: return
+        viewModelScope.launch {
+            audioRepository.save(gameId, settings)
+            mutableUiState.update {
+                it.copy(
+                    infoMessage = "Ajustes de audio guardados.",
+                    errorMessage = null,
+                )
+            }
+            prepareEnvironment()
+        }
+    }
+
+    /** Restablece los ajustes de audio a los valores por defecto. */
+    fun resetAudioSettings() {
+        val gameId = mutableUiState.value.game?.id ?: return
+        viewModelScope.launch {
+            audioRepository.reset(gameId)
+            prepareEnvironment()
+        }
+    }
+
     /** Cierra el motor y libera todo lo que tenga un ciclo de vida. */
     fun shutdown() {
         monitorJob?.cancel()
@@ -246,6 +259,8 @@ class RuntimeViewModel(
         logsJob = null
         configJob?.cancel()
         configJob = null
+        audioJob?.cancel()
+        audioJob = null
         gameJob?.cancel()
         gameJob = null
         if (engine.status.value is RuntimeStatus.Running ||
@@ -275,6 +290,15 @@ class RuntimeViewModel(
         }
     }
 
+    private fun observeAudio(gameId: String) {
+        audioJob?.cancel()
+        audioJob = viewModelScope.launch {
+            audioRepository.observe(gameId).collect { settings ->
+                mutableUiState.update { it.copy(audioSettings = settings) }
+            }
+        }
+    }
+
     private fun observeLogs() {
         logsJob?.cancel()
         logsJob = viewModelScope.launch {
@@ -288,6 +312,15 @@ class RuntimeViewModel(
                             val newLogs = (state.logs + log).takeLast(MAX_LOG_LINES)
                             state.copy(logs = newLogs)
                         }
+                        DiagnosticsLogger.shared.record(
+                            level = when (log.stream) {
+                                com.nexora.android.runtime.model.LogStream.STDERR ->
+                                    com.nexora.android.runtime.diagnostics.DiagnosticsLevel.WARN
+                                else -> com.nexora.android.runtime.diagnostics.DiagnosticsLevel.INFO
+                            },
+                            source = "runtime",
+                            message = log.message,
+                        )
                     }
                 }
             }
