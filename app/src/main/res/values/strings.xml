@@ -228,4 +228,14 @@
     <string name="action_open_settings">Ajustes</string>
     <string name="action_open_diagnostics">Diagnóstico</string>
     <string name="action_open_saves">Partidas</string>
+
+    <!-- Fase 9: HUD flotante y gestor de partidas -->
+    <string name="overlay_channel_name">HUD de rendimiento</string>
+    <string name="overlay_channel_description">Notificación permanente mientras el HUD flotante está visible sobre el juego.</string>
+    <string name="overlay_notification_title">HUD de rendimiento activo</string>
+    <string name="overlay_notification_text">Mostrando FPS, RAM y CPU sobre el juego.</string>
+    <string name="overlay_notification_text_game">Mostrando FPS, RAM y CPU sobre %1$s.</string>
+    <string name="overlay_permission_missing">Falta el permiso «Aparecer encima de otras apps» para mostrar el HUD.</string>
+    <string name="overlay_no_session">No hay ninguna sesión de juego activa que cerrar.</string>
+    <string name="overlay_kill_requested">Cierre solicitado: el motor está terminando el proceso.</string>
 </resources>

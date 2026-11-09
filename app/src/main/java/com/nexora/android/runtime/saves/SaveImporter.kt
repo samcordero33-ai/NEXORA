@@ -14,7 +14,7 @@ import java.util.zip.ZipInputStream
  * sospechosa, se ignora y se contabiliza.
  *
  * Las entradas que son directorios no se materializan: `ZipInputStream` los
- * entrega vacíos y我们会 los saltamos.
+ * entrega vacíos y los saltamos.
  */
 object SaveImporter {
 

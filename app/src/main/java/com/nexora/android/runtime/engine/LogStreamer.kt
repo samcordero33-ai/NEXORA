@@ -90,7 +90,7 @@ class LogStreamer(
     }
 
     companion object {
-        /** Buffer por defecto: 512 líneas sobreviven a una消费 lenta. */
+        /** Buffer por defecto: 512 líneas sobreviven a un consumo lento. */
         const val DEFAULT_CAPACITY = 512
     }
 }

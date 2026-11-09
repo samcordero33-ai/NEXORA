@@ -16,7 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Folder
@@ -465,7 +465,7 @@ private fun TouchControlsCard(
  * Barra superior del detalle.
  *
  * La supresión es deliberada: la versión de `material-icons-extended` que fija
- * el BOM marca `Icons.Outlined.ArrowBack` como obsoleto apuntando a
+ * el BOM marca `Icons.AutoMirrored.Outlined.ArrowBack` como obsoleto apuntando a
  * `Icons.AutoMirrored.Outlined.ArrowBack`, pero **ese objeto no existe** en la
  * versión resuelta. Se queda la variante explícita para compilar sin avisos hasta
  * que se suba el BOM.
@@ -483,7 +483,7 @@ private fun DetailTopBar(
     ) {
         IconButton(onClick = onBack) {
             Icon(
-                imageVector = Icons.Outlined.ArrowBack,
+                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                 contentDescription = stringResource(R.string.detail_action_back),
                 tint = NexoraTextPrimary,
                 modifier = Modifier.size(22.dp),

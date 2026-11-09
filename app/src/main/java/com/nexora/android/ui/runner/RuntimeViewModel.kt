@@ -32,6 +32,11 @@ import com.nexora.android.runtime.env.WinePrefix
 import com.nexora.android.runtime.input.EvdevInputTransport
 import com.nexora.android.runtime.input.InputBridge
 import com.nexora.android.runtime.input.ViewportMapping
+import com.nexora.android.runtime.diagnostics.SessionLogRecorder
+import com.nexora.android.runtime.overlay.DxvkHudParser
+import com.nexora.android.runtime.overlay.OverlayCommand
+import com.nexora.android.runtime.overlay.OverlayController
+import com.nexora.android.runtime.overlay.OverlayMetricsBus
 import com.nexora.android.runtime.monitor.AndroidRuntimeMonitorSource
 import com.nexora.android.runtime.monitor.RuntimeMonitorSnapshot
 import com.nexora.android.runtime.monitor.RuntimeMonitorSource
@@ -74,6 +79,7 @@ data class RuntimeUiState(
     val runtime: RuntimeBinaryUiState = RuntimeBinaryUiState(),
     val input: InputBridgeUiState = InputBridgeUiState(),
     val audio: AudioBridgeUiState = AudioBridgeUiState(),
+    val overlay: OverlayUiState = OverlayUiState(),
     val infoMessage: String? = null,
     val errorMessage: String? = null,
 ) {
@@ -137,6 +143,16 @@ class RuntimeViewModel(
     /** Sumidero de audio real. */
     private val audioPipeline = AudioPipeline()
 
+    /**
+     * Registro de la sesión en disco (Fase 9).
+     *
+     * La Fase 8 volcaba la salida del motor a memoria; esto la escribe en
+     * `filesDir/logs` para que sobreviva a un cierre inesperado.
+     */
+    private val logRecorder = SessionLogRecorder(
+        logDir = File(application.filesDir, "logs"),
+    )
+
     /** Tamaño de la superficie de juego, que la UI comunica en píxeles. */
     private var surfaceWidthPx: Float = 0f
     private var surfaceHeightPx: Float = 0f
@@ -166,12 +182,37 @@ class RuntimeViewModel(
                     stopBridges()
                 }
                 if (status is RuntimeStatus.Running) {
+                    OverlayMetricsBus.publishSessionStarted(status.pid)
                     mutableUiState.update {
                         it.copy(input = it.input.copy(enabled = inputBridge?.enabled == true))
                     }
                 }
+                if (status is RuntimeStatus.Stopped || status is RuntimeStatus.Failed) {
+                    OverlayMetricsBus.publishSessionStopped()
+                }
             }
         }
+        viewModelScope.launch {
+            OverlayMetricsBus.commands.collect { command ->
+                when (command) {
+                    OverlayCommand.EmergencyKill -> {
+                        DiagnosticsLogger.shared.record(
+                            level = com.nexora.android.runtime.diagnostics.DiagnosticsLevel.WARN,
+                            source = "overlay",
+                            message = "Cierre de emergencia solicitado desde el HUD flotante",
+                        )
+                        logRecorder.appendLine("# cierre de emergencia solicitado desde el HUD")
+                        kill()
+                    }
+                    OverlayCommand.HudDismissed -> {
+                        mutableUiState.update {
+                            it.copy(overlay = it.overlay.copy(running = false))
+                        }
+                    }
+                }
+            }
+        }
+        refreshOverlayPermission()
         installRuntime()
     }
 
@@ -289,6 +330,73 @@ class RuntimeViewModel(
         mutableUiState.update { it.copy(hudVisible = visible) }
     }
 
+    /** Relee si la app puede dibujar sobre otras aplicaciones (Fase 9). */
+    fun refreshOverlayPermission() {
+        val canDraw = OverlayController.canDrawOverlays(getApplication())
+        mutableUiState.update { it.copy(overlay = it.overlay.copy(canDraw = canDraw)) }
+    }
+
+    /** Lleva al ajuste del sistema para conceder "Aparecer encima de otras apps". */
+    fun overlayPermissionIntent(): android.content.Intent =
+        OverlayController.permissionIntent(getApplication())
+
+    /**
+     * Arranca el HUD flotante.
+     *
+     * Sin permiso de superposición no se arranca nada y se explica por qué:
+     * un botón que dice "activado" sin ventana visible es peor que un error.
+     */
+    fun startOverlay() {
+        val state = mutableUiState.value
+        if (!OverlayController.canDrawOverlays(getApplication())) {
+            mutableUiState.update {
+                it.copy(
+                    overlay = it.overlay.copy(
+                        canDraw = false,
+                        running = false,
+                        error = "Falta el permiso «Aparecer encima de otras apps»",
+                    ),
+                )
+            }
+            return
+        }
+        val started = runCatching {
+            OverlayController.start(getApplication(), state.game?.name.orEmpty())
+        }.getOrDefault(false)
+
+        mutableUiState.update {
+            it.copy(
+                overlay = it.overlay.copy(
+                    canDraw = true,
+                    running = started,
+                    error = if (started) null else "El sistema no dejó abrir la ventana flotante",
+                ),
+            )
+        }
+        DiagnosticsLogger.shared.record(
+            level = if (started) {
+                com.nexora.android.runtime.diagnostics.DiagnosticsLevel.INFO
+            } else {
+                com.nexora.android.runtime.diagnostics.DiagnosticsLevel.WARN
+            },
+            source = "overlay",
+            message = if (started) "HUD flotante iniciado" else "HUD flotante no pudo iniciarse",
+        )
+    }
+
+    /** Detiene el HUD flotante. */
+    fun stopOverlay() {
+        runCatching { OverlayController.stop(getApplication()) }
+        mutableUiState.update {
+            it.copy(overlay = it.overlay.copy(running = false, error = null))
+        }
+    }
+
+    /** Alterna el HUD flotante. */
+    fun toggleOverlay() {
+        if (mutableUiState.value.overlay.running) stopOverlay() else startOverlay()
+    }
+
     /** Prepara el entorno sin lanzar el proceso. */
     fun prepareEnvironment() {
         val state = mutableUiState.value
@@ -337,6 +445,16 @@ class RuntimeViewModel(
             prepareEnvironment()
             return
         }
+        // El registro se abre ANTES de lanzar: si el proceso muere en el
+        // primer segundo, las líneas que importan son justamente esas.
+        logRecorder.start(
+            gameId = mutableUiState.value.game?.id ?: "sesion",
+            header = listOf(
+                "Comando: ${composed.command.joinToString(" ")}",
+                "Prefijo: ${composed.winePrefixPath}",
+                "Perfil: ${mutableUiState.value.activeProfileName}",
+            ),
+        )
         try {
             engine.launch(env = composed)
             // Los puentes se abren solo si el proceso llegó a arrancar: un
@@ -345,6 +463,7 @@ class RuntimeViewModel(
             startAudio(composed.winePrefixPath)
             startInput()
         } catch (error: Throwable) {
+            logRecorder.appendLine("# no se pudo lanzar: ${error.message ?: error.javaClass.simpleName}")
             mutableUiState.update {
                 it.copy(errorMessage = error.message ?: error.javaClass.simpleName)
             }
@@ -358,6 +477,8 @@ class RuntimeViewModel(
     fun kill() {
         engine.kill()
         stopMonitor()
+        logRecorder.appendLine("# proceso terminado por el usuario")
+        OverlayMetricsBus.publishSessionStopped()
     }
 
     /** Persiste los ajustes de entorno modificados por el usuario. */
@@ -427,6 +548,11 @@ class RuntimeViewModel(
             engine.kill()
         }
         monitorSource.close()
+        logRecorder.appendLine("# sesión cerrada")
+        logRecorder.close()
+        OverlayMetricsBus.publishSessionStopped()
+        OverlayController.stop(getApplication())
+        mutableUiState.update { it.copy(overlay = it.overlay.copy(running = false)) }
     }
 
     /** Descarta los mensajes informativos / de error. */
@@ -466,6 +592,10 @@ class RuntimeViewModel(
                     delay(200L)
                 } else {
                     flow.collect { log ->
+                        logRecorder.append(log)
+                        DxvkHudParser.parseFps(log.message)?.let { fps ->
+                            OverlayMetricsBus.publishEngineFps(fps)
+                        }
                         mutableUiState.update { state ->
                             val newLogs = (state.logs + log).takeLast(MAX_LOG_LINES)
                             state.copy(logs = newLogs)

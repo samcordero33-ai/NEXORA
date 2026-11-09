@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Icono de la notificación del HUD flotante (Fase 9).
+  Los iconos de notificación deben ser monocromos y con fondo transparente:
+  el sistema los tiñe y recorta a silueta.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,4h3.2l9.6,12.4V4H20v16h-3.2L7.2,7.6V20H4z" />
+</vector>

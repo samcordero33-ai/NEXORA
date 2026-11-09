@@ -12,4 +12,17 @@
     <cache-path
         name="nexora_cache"
         path="." />
+
+    <!--
+      Fase 9: registros de sesión (.log) y respaldos de partidas (.zip).
+      Se exponen solo estas dos carpetas, no filesDir entero: compartir el
+      prefijo de Wine entero por FileProvider sería regalar la partida y el
+      perfil de usuario a cualquier app que reciba el URI.
+    -->
+    <files-path
+        name="nexora_logs"
+        path="logs/" />
+    <files-path
+        name="nexora_saves"
+        path="save_backups/" />
 </paths>

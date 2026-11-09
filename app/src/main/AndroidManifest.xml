@@ -32,6 +32,25 @@
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!--
+      Fase 9: HUD flotante de rendimiento.
+
+      SYSTEM_ALERT_WINDOW es el permiso "Aparecer encima de otras apps". No se
+      concede con un dialogo de runtime: el usuario tiene que activarlo en
+      Ajustes, y por eso la app comprueba Settings.canDrawOverlays antes de
+      intentar dibujar nada.
+
+      El servicio va en primer plano porque la ventana debe seguir viva
+      cuando el usuario cambia al juego. En Android 14 el tipo es obligatorio:
+      specialUse es el que corresponde a una superposicion de diagnostico.
+      POST_NOTIFICATIONS solo afecta a que se vea la notificacion del
+      servicio; sin ella el HUD sigue funcionando.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name=".NexoraApplication"
         android:allowBackup="true"
@@ -52,6 +71,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Fase 9: servicio del HUD flotante. exported=false porque solo lo
+          arranca la propia app; foregroundServiceType specialUse porque
+          dibuja una superposición de diagnóstico mientras corre un juego.
+        -->
+        <service
+            android:name=".runtime.overlay.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="HUD flotante de metricas durante la ejecucion de un juego" />
+        </service>
 
         <!--
           Fase 7: FileProvider para compartir logs de diagnóstico como .txt.

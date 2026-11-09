@@ -1,4 +1,4 @@
-# NEXORA v0.8 — Fase 8
+# NEXORA v0.9 — Fase 9
 
 **Windows Gaming Runtime for Android.**
 
@@ -30,11 +30,19 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   vivo y exportación del registro a `.txt`, **ajustes globales** (tema,
   animaciones, autoguardado de logs, almacenamiento y reseteo) y
   **animaciones** de transición entre biblioteca, detalle y ejecución.
-- **Fase 8 (v0.8, esta versión):** **motor de ejecución real**: instalación y
+- **Fase 8 (v0.8):** **motor de ejecución real**: instalación y
   verificación de binarios con permisos de ejecución, orquestador de procesos
   con `LD_LIBRARY_PATH` y `PATH` completos, **puente táctil `evdev`** que
   escribe eventos del kernel (`input_event`) y **salida de audio real** con
   `AudioTrack` en modo baja latencia.
+- **Fase 9 (v0.9, esta versión):** **monitor de rendimiento flotante**
+  (`OverlayService` + `WindowManager` + Compose, arrastrable, con FPS del motor
+  vía `DXVK_HUD`, RAM/CPU del sistema y cierre de emergencia), **gestor
+  completo de partidas guardadas** (escaneo de carpetas de guardado del
+  prefijo, respaldos ZIP con historial, restauración con copia de seguridad
+  previa e importación/exportación por SAF) y **consola de logs en vivo con
+  reporte de fallos** (registro de sesión persistido en disco y diagnóstico
+  automático de SIGSEGV, DLL ausente, `DEVICE_LOST`, OOM…).
 
 > **El motor es real, los binarios no viajan en el APK.** La Fase 8 sustituye
 > los stubs por la maquinaria completa —extracción, verificación SHA-256,
@@ -50,8 +58,15 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
 > `evdev` y lo reporta. Lo que no puede hacer es ejecutar un `.exe` que no
 > tiene con qué ejecutar.
 >
-> **No avanza a la Fase 9.** Crear un dispositivo `uinput` propio (requiere
-> `ioctl`, es decir JNI) y empaquetar los binarios siguen fuera de alcance.
+> **La Fase 9 no cambia eso.** El HUD flotante, el gestor de partidas y el
+> analizador de fallos funcionan sobre lo que haya: si no hay binarios, el HUD
+> muestra RAM/CPU reales y los FPS del overlay (etiquetados como tales, nunca
+> como FPS del juego), el gestor de partidas encuentra cero carpetas y el
+> analizador dice "runtime sin binarios".
+>
+> **No avanza a la Fase 10.** Crear un dispositivo `uinput` propio (requiere
+> `ioctl`, es decir JNI), empaquetar los binarios firmados y la pausa real con
+> SIGSTOP siguen fuera de alcance.
 
 ## Requisitos cumplidos
 
@@ -117,6 +132,18 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
 | Escalado pantalla → escritorio virtual con recorte | ✔ `ViewportMapping` (`ABS_MAX_VALUE = 32767`) |
 | **Audio real (Fase 8)** | ✔ `AudioTrackSink` + `AudioPipeline` + `FifoPcmSource` |
 | `AudioTrack` 44,1/48 kHz con búfer calculado y modo baja latencia | ✔ `AudioSinkConfig` (6 pruebas) + `PERFORMANCE_MODE_LOW_LATENCY` |
+| **HUD flotante (Fase 9)** | ✔ `OverlayService` (`TYPE_APPLICATION_OVERLAY`) + `FloatingHud` |
+| Ventana transparente, arrastrable y sujeta a los bordes | ✔ `OverlayGeometry` (9 pruebas) + `WindowManager.updateViewLayout` |
+| FPS del motor desde `DXVK_HUD` | ✔ `DxvkHudParser` (6 pruebas) + `OverlayMetricsBus` |
+| RAM y CPU del sistema en vivo | ✔ `AndroidRuntimeMonitorSource` (Fase 6) reutilizado por el servicio |
+| Minimizar / maximizar y cierre de emergencia | ✔ `HudMode` + `OverlayCommand.EmergencyKill` → `RuntimeViewModel.kill()` |
+| **Gestor de partidas (Fase 9)** | ✔ `SaveLocationScanner` + `SaveBackupStore` |
+| Escaneo de `Saved Games`, `My Games`, `Documents`, `AppData` | ✔ 8 pruebas sobre un `drive_c` temporal |
+| Exportar / importar ZIP en la memoria del dispositivo | ✔ `SaveBackupArchive` + `SaveImporter` + SAF (`CreateDocument`/`OpenDocument`) |
+| Restaurar respaldos con copia de seguridad previa | ✔ `SaveBackupStore.create()` antes de `SaveImporter.extract()` |
+| **Consola de logs y reporte de fallos (Fase 9)** | ✔ `SessionLogRecorder` + `LogFileStore` + `CrashLogAnalyzer` |
+| Registro de sesión persistido (sobrevive al cierre) | ✔ `filesDir/logs/session-<juego>-<fecha>.log`, `flush()` por línea |
+| Diagnóstico automático de Box64 / Wine / DXVK | ✔ 13 pruebas: SIGSEGV, SIGILL, DLL, `DEVICE_LOST`, OOM, permisos… |
 
 ## Stack
 
@@ -162,15 +189,21 @@ com.nexora.android/
 │   ├── audio/                  # AudioBackend, AudioSampleRate, AudioBufferFrames,
 │   │                           # AudioSettings, AudioComposer, AudioSinkConfig,
 │   │                           # AudioTrackSink, AudioPipeline, FifoPcmSource
+│   ├── overlay/                # OverlayGeometry, OverlayMetrics + OverlayComposer,
+│   │                           # DxvkHudParser, OverlayMetricsBus,
+│   │                           # OverlayController, OverlayService
 │   ├── saves/                  # SaveBackupArchive, SaveImporter,
-│   │                           # ShaderCacheCleaner, TempFileCleaner
+│   │                           # SaveLocationScanner, BackupNaming,
+│   │                           # SaveBackupStore, ShaderCacheCleaner, TempFileCleaner
 │   ├── diagnostics/            # DiagnosticsEvent, DiagnosticsLogger (ring buffer),
-│   │                           # LogExporter (.txt)
+│   │                           # LogExporter (.txt), SessionLogRecorder (.log),
+│   │                           # LogFileStore, CrashLogAnalyzer
 │   ├── preferences/            # AppTheme + GlobalPreferences
 │   └── repository/             # AudioSettingsRepository, GlobalPreferencesRepository
 ├── ui/
-│   ├── saves/SavesViewModel.kt          # exportar / importar / limpiar
-│   ├── diagnostics/DiagnosticsViewModel.kt
+│   ├── overlay/FloatingHud.kt           # contenido del HUD flotante (Compose puro)
+│   ├── saves/SavesViewModel.kt          # escanear / respaldar / restaurar
+│   ├── diagnostics/DiagnosticsViewModel.kt  # pestañas En vivo y Sesión
 │   ├── settings/GlobalSettingsViewModel.kt
 │   ├── components/SharedComponents.kt   # MessageCard, EnumRow, RuntimeSectionCard
 │   └── screens/{SavesManagerScreen,DiagnosticsScreen,GlobalSettingsScreen}.kt
@@ -664,6 +697,128 @@ la app va por delante se bloquea, y los *underruns* quedan contados en la UI.
 Un fallo de `AudioTrack` no tumba la sesión: el juego sigue sin sonido y la
 tarjeta lo dice. Un juego mudo es mejor que un cierre inesperado.
 
+### `runtime/overlay/` — HUD flotante (Fase 9)
+
+El monitor de la Fase 6 vive **dentro** de la pantalla de ejecución: cuando el
+juego pasa a pantalla completa o el usuario cambia de app, desaparece. La Fase 9
+lo saca a una ventana propia.
+
+```
+OverlayController.start(context, juego)
+        │  (comprueba Settings.canDrawOverlays)
+        ▼
+OverlayService  ── WindowManager.addView(ComposeView, TYPE_APPLICATION_OVERLAY)
+        │                │
+        │                └── FloatingHud(metrics, mode, onDrag, onKill, onClose)
+        │
+        └── bucle de muestreo cada 500 ms
+                ├── AndroidRuntimeMonitorSource  → RAM, CPU, FPS del overlay
+                └── OverlayMetricsBus.engine     → FPS del motor (DXVK_HUD)
+```
+
+**Por qué un servicio en primer plano.** Una ventana `TYPE_APPLICATION_OVERLAY`
+necesita un `Context` que sobreviva a la Activity, y el sistema mata los
+servicios en segundo plano cuando hace falta memoria. El servicio se declara
+`foregroundServiceType="specialUse"` (obligatorio en Android 14) y publica una
+notificación silenciosa. Sin `POST_NOTIFICATIONS` la notificación no se ve,
+pero el HUD sigue funcionando.
+
+**Compose fuera de una Activity.** `ComposeView` exige un `LifecycleOwner` y un
+`SavedStateRegistryOwner` en el árbol de vistas. `OverlayLifecycleOwner` es la
+implementación mínima (CREATED → RESUMED → DESTROYED) que cumple el contrato sin
+arrastrar una Activity entera.
+
+**Geometría sin Android.** `OverlayGeometry` es aritmética de enteros:
+`clampX/clampY`, `place`, `move` y `snapToEdge`. El `WindowManager` acepta
+posiciones negativas sin protestar, y una ventana arrastrada fuera de pantalla
+es irrecuperable para el usuario; por eso todo movimiento pasa por ahí antes de
+llegar a `updateViewLayout`. Nueve pruebas cubren los bordes, el truncado de
+deltas (para que un arrastre lento no vibre) y el anclaje al borde más cercano.
+
+**De dónde salen los FPS.** Es la parte fácil de mentir, así que se etiqueta:
+
+| Fuente | Cuándo | Etiqueta en el HUD |
+|---|---|---|
+| `DXVK_HUD` en stderr → `DxvkHudParser` | el motor publica cifras y tienen < 3 s | `motor` |
+| `Choreographer` del proceso | el motor no publica nada | `overlay` |
+| ninguna | aún no hay medida | `—` |
+
+`OverlayComposer.compose()` hace la mezcla y es una función pura: recibe la
+muestra del motor, la del dispositivo y el reloj, y devuelve `OverlayMetrics`.
+Los umbrales (50/30 FPS, 75/90 % de RAM, 75/85 °C) están en
+`OverlayThresholds` y se traducen a un semáforo de cuatro estados.
+
+**Cierre de emergencia.** El botón rojo **no** mata nada: publica
+`OverlayCommand.EmergencyKill` en `OverlayMetricsBus`. El `Process` pertenece al
+`RuntimeViewModel`, y solo él puede cerrarlo con su `ProcessHandle`. Si no hay
+sesión activa, el HUD lo dice con un `Toast` en vez de un botón que no responde.
+
+### `runtime/saves/` — gestor de partidas (Fase 9)
+
+La Fase 7 ya sabía empaquetar un ZIP; lo que faltaba era saber **qué**
+empaquetar y **dónde** dejarlo.
+
+`SaveLocationScanner` busca en las cinco rutas que Windows usa de verdad:
+`Saved Games`, `Documents/My Games`, `Documents`, `AppData/Roaming` y
+`AppData/Local`, dentro de cada `users/<u>`. Devuelve solo carpetas con
+archivos, descarta la carpeta padre cuando ya lista la hija (el usuario quiere
+la partida, no el árbol) y marca con `matchesGame` las que contienen alguna
+palabra significativa del título —`"The Witcher 3: Wild Hunt"` produce
+`["witcher", "wild", "hunt"]`, sin artículos ni «Edition»—.
+
+`BackupNaming` codifica juego y fecha **en el nombre del archivo**:
+
+```
+nexora-saves_<gameId>_20250312-180412.zip
+```
+
+No hay índice ni base de datos que se pueda desincronizar: copiar el ZIP a otra
+carpeta y devolverlo sigue funcionando. Un ZIP que no siga la convención no se
+lista (no se sabe de qué juego es) pero tampoco se borra.
+
+**Corrección respecto a la Fase 7:** el respaldo se empaqueta **relativo a
+`drive_c`**, sin el prefijo `nexora/<id>/` que usaba la exportación anterior. Con
+aquel prefijo, restaurar dejaba los archivos en `drive_c/nexora/<id>/users/...`
+en vez de sobreescribir la partida. Ahora exportar e importar son simétricos, y
+una prueba lo verifica leyendo las entradas del ZIP.
+
+`SaveBackupStore` crea, lista, borra y poda (`prune(keep)`), y resuelve las
+colisiones del mismo segundo avanzando el nombre en vez de sobreescribir.
+
+La restauración hace **primero** un respaldo de seguridad de lo que hay. Si el
+ZIP elegido es de otra partida, ese respaldo es la única forma de volver atrás.
+
+### `runtime/diagnostics/` — registro de sesión y análisis de fallos (Fase 9)
+
+La Fase 8 volcaba `stdout`/`stderr` a memoria y al ring buffer. Ambos se van con
+el proceso, y un fallo de Box64 se diagnostica **después**.
+
+`SessionLogRecorder` escribe `filesDir/logs/session-<juego>-<fecha>.log` con
+`flush()` en cada línea: un buffer sin volcar no contiene las últimas líneas,
+que son justo las interesantes. Tope de 8 MB con marca de truncado, para que
+`WINEDEBUG=+relay` no llene el teléfono.
+
+`CrashLogAnalyzer` lee la cola del archivo y busca ocho firmas, en orden de
+gravedad:
+
+| Firma | Patrón típico | Qué sugiere |
+|---|---|---|
+| `SEGFAULT` | `Segmentation fault`, `SIGSEGV`, `page fault on read` | dynarec de Box64 o binario de 16 bits |
+| `UNHANDLED_EXCEPTION` | `wine: Unhandled exception`, `0xc0000005` | falta `vcrun2019` en el prefijo |
+| `ILLEGAL_INSTRUCTION` | `Illegal instruction`, `SIGILL` | instrucción no implementada |
+| `DEVICE_LOST` | `VK_ERROR_DEVICE_LOST` | driver Vulkan / resolución |
+| `OUT_OF_MEMORY` | `bad_alloc`, `ENOMEM` | texturas o RAM del sistema |
+| `MISSING_DLL` | `err:module:import_dll` | instalar con winetricks |
+| `PERMISSION_DENIED` | `Permission denied` | permisos de `filesDir/runtime` |
+| `MISSING_BINARY` | `BinaryNotInstalledException` | copiar el runtime |
+
+Cuando no reconoce nada lo dice: «no se ha reconocido ningún patrón de fallo
+conocido». Un diagnóstico inventado es peor que ninguno.
+
+En la UI, la consola pasa a tener dos pestañas: **En vivo** (ring buffer) y
+**Sesión** (archivos en disco, con el análisis arriba y el log debajo, coloreado
+por `err:`/`error`/`fault`).
+
 ### `engine/profile/` — AutoOptimizer (Fase 4)
 
 El optimizador responde a una pregunta: **qué perfil le conviene a este juego en
@@ -1000,25 +1155,28 @@ En cada push a `main`, GitHub Actions compila y publica el artefacto
 ```
 ./gradlew assembleDebug      -> BUILD SUCCESSFUL
 ./gradlew assembleRelease    -> BUILD SUCCESSFUL
-./gradlew testDebugUnitTest  -> 159 tests, 0 failures, 0 errors
+./gradlew testDebugUnitTest  -> 228 tests, 0 failures, 0 errors
 ```
 
 Reparto de pruebas: 9 del escáner (Fase 2), 8 del mapeo de la entidad + perfil
 (Fase 3/4), 9 del AutoOptimizer y 10 del catálogo de perfiles y la detección de
 pistas (Fase 4), 11 del motor de gestos y 8 del layout de controles (Fase 5),
 26 del entorno y del motor (Fase 6), **27 de la Fase 7** (13 de audio, 8 de
-partidas y caché, 6 de diagnóstico) y **51 de la Fase 8** (12 de binarios y
+partidas y caché, 6 de diagnóstico), **51 de la Fase 8** (12 de binarios y
 manifiesto, 14 de ejecución y entorno, 19 de entrada táctil y 6 de
-configuración de audio). Todas JVM puras: ni Robolectric ni instrumentación,
-porque ninguna de estas clases toca Android; las que sí lo tocan
-(`AudioTrackSink`, `RuntimeBinaryLoader`, `EvdevInputTransport`) son envoltorios
-finos sobre APIs del sistema, y su lógica de decisión vive en clases puras.
+configuración de audio) y **69 de la Fase 9** (9 de geometría del HUD, 7 de
+métricas y umbrales, 6 de parseo de `DXVK_HUD`, 8 de escaneo de partidas, 6 de
+nombres de respaldo, 8 del almacén de respaldos, 6 del registro de sesión, 6 de
+lectura de logs y 13 del analizador de fallos). Todas JVM puras: ni Robolectric
+ni instrumentación, porque ninguna de estas clases toca Android; las que sí lo
+tocan (`AudioTrackSink`, `RuntimeBinaryLoader`, `EvdevInputTransport`,
+`OverlayService`) son envoltorios finos sobre APIs del sistema, y su lógica de
+decisión vive en clases puras.
 
-Los únicos avisos del compilador son cuatro **desusos de
-`Icons.Outlined.ArrowBack`**: el BOM 2024.02.00 (`material-icons-extended
-1.6.1`) marca el icono como obsoleto apuntando a
-`Icons.AutoMirrored.Outlined.ArrowBack`, pero esa variante **no existe** en el
-artefacto (solo `ArrowBackIos`), así que se mantiene la versión sin espejo.
+La compilación queda **sin avisos**: los cinco usos de `Icons.Outlined.ArrowBack`
+se migraron a `Icons.AutoMirrored.Outlined.ArrowBack`, que sí existe en
+`material-icons-core` 1.6.1 (en `material-icons-extended` solo está
+`ArrowBackIos`, de ahí la confusión de la Fase 7).
 
 Auditoría de librerías de escritorio, en dos niveles:
 
@@ -1222,7 +1380,42 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
   JNI: el motor escribe PCM y la app lo lee. Cuando el motor tenga su propio
   sink, se cambia la implementación de `AudioPcmSource`.
 
-## Fase 9 (fuera de esta versión)
+## Decisiones de la Fase 9
+
+- **El HUD es una ventana, no un composable más.** Un overlay dibujado dentro de
+  la Activity desaparece en cuanto el juego ocupa la pantalla. `TYPE_APPLICATION_OVERLAY`
+  es la única forma de que siga visible, y eso obliga a un servicio en primer
+  plano y a un `LifecycleOwner` propio.
+- **Los FPS se etiquetan, no se inventan.** `motor` cuando los publica
+  `DXVK_HUD`, `overlay` cuando los mide el `Choreographer`. Un 60 fijo en
+  pantalla sería la mentira más fácil de esta fase.
+- **El cierre de emergencia es una orden, no un `kill` directo.** El servicio
+  no tiene el `Process`; el ViewModel sí. Publicar la orden en un bus mantiene
+  el servicio sin dependencias del motor y permite decir "no hay sesión" cuando
+  no la hay.
+- **Arrastrar solo desde el asa.** Si toda la tarjeta arrastrara, pulsar
+  "cerrar" con el dedo en movimiento movería la ventana en vez de cerrarla.
+- **La geometría se prueba en JVM.** `OverlayGeometry` no conoce Android, así
+  que los bordes, el truncado y el anclaje se verifican sin dispositivo. Es la
+  parte del HUD que de verdad puede fallar en silencio.
+- **El respaldo es relativo a `drive_c`.** El prefijo `nexora/<id>/` de la Fase 7
+  hacía que restaurar creara una carpeta nueva en vez de sobrescribir la
+  partida. Exportar e importar tienen que ser la misma operación al revés.
+- **Antes de restaurar, se respalda.** Restaurar el ZIP equivocado sin red de
+  seguridad es perder la partida en un toque.
+- **El nombre del archivo es la base de datos.** Sin índice que mantener, un
+  respaldo copiado a mano sigue siendo válido. Un ZIP con nombre desconocido no
+  se lista, pero tampoco se borra: no es asunto de la app decidir eso.
+- **`flush()` por línea en el log de sesión.** Cuesta poco y es la diferencia
+  entre tener las últimas líneas de un cuelgue o no tenerlas.
+- **El analizador dice "no lo sé".** Ocho firmas cubren lo reconocible; para
+  todo lo demás, el log completo está a un toque. Inventar una causa sería peor
+  que no dar ninguna.
+- **`Settings.canDrawOverlays` es la única verdad del permiso.** No se guarda en
+  preferencias: el usuario puede revocarlo en Ajustes sin avisar, y la pantalla
+  lo relee en cada `ON_RESUME`.
+
+## Fase 10 (fuera de esta versión)
 
 - **Empaquetar los binarios** de Wine / Box64 (o FEX-Emu) / DXVK / Turnip y
   firmar el manifiesto con una clave de release. La Fase 8 ya los instala,
@@ -1234,4 +1427,9 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
 - **Alta manual de juegos** desde un `.exe` arbitrario.
 - **Ajustes finos de audio** (DPI de los controles, idioma, límite global de
   FPS) y salida Oboe/AAudio nativa en lugar de `AudioTrack`.
+- **Métricas del proceso del juego**, no del overlay: hoy la RAM/CPU son del
+  sistema y los FPS del motor solo si `DXVK_HUD` los publica. Leer
+  `/proc/<pid>/stat` del proceso hijo daría cifras exactas del juego.
+- **Sincronización de respaldos** (nube o carpeta compartida) y comparación de
+  dos respaldos antes de restaurar.
 - **Cifrado del prefijo** y migración multi-juego.

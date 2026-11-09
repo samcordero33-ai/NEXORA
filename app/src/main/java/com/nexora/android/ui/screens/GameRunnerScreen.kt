@@ -19,8 +19,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
@@ -37,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,8 +51,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nexora.android.R
@@ -73,6 +78,7 @@ import com.nexora.android.ui.components.RuntimeSectionCard
 import com.nexora.android.ui.components.TouchControlsOverlay
 import com.nexora.android.ui.runner.AudioBridgeUiState
 import com.nexora.android.ui.runner.InputBridgeUiState
+import com.nexora.android.ui.runner.OverlayUiState
 import com.nexora.android.ui.runner.RuntimeBinaryUiState
 import com.nexora.android.ui.runner.RuntimeViewModel
 import com.nexora.android.ui.theme.NexoraAccent
@@ -109,9 +115,21 @@ fun GameRunnerRoute(
     onBack: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     LaunchedEffect(gameId) {
         viewModel.loadGame(gameId)
+    }
+
+    // Al volver del ajuste de permisos hay que releer si se concedió: el
+    // sistema no avisa por ningún callback, solo cambia el valor.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshOverlayPermission()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     BackHandler(enabled = true) {
@@ -140,6 +158,11 @@ fun GameRunnerRoute(
         onGesture = viewModel::dispatchInput,
         onInstallRuntime = viewModel::installRuntime,
         onViewportChange = viewModel::updateViewport,
+        onToggleOverlay = viewModel::toggleOverlay,
+        onRequestOverlayPermission = {
+            runCatching { context.startActivity(viewModel.overlayPermissionIntent()) }
+            viewModel.refreshOverlayPermission()
+        },
         onDismissMessage = viewModel::dismissMessages,
         modifier = modifier,
     )
@@ -168,6 +191,8 @@ fun GameRunnerScreen(
     onGesture: (InputEvent) -> Unit,
     onInstallRuntime: (Boolean) -> Unit,
     onViewportChange: (Float, Float) -> Unit,
+    onToggleOverlay: () -> Unit,
+    onRequestOverlayPermission: () -> Unit,
     onDismissMessage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -227,6 +252,14 @@ fun GameRunnerScreen(
                 onPause = onPause,
                 onResume = onResume,
                 onKill = onKill,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            FloatingHudCard(
+                overlay = uiState.overlay,
+                onToggle = onToggleOverlay,
+                onRequestPermission = onRequestOverlayPermission,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -299,7 +332,7 @@ private fun TopBar(
     ) {
         IconButton(onClick = onBack) {
             Icon(
-                imageVector = Icons.Outlined.ArrowBack,
+                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                 contentDescription = null,
                 tint = NexoraTextPrimary,
             )
@@ -948,6 +981,90 @@ private fun EngineCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = NexoraWarning,
             )
+        }
+    }
+}
+
+/**
+ * Tarjeta de control del HUD flotante (Fase 9).
+ *
+ * El botón solo dice "ACTIVAR" si el permiso está concedido; si no, ofrece
+ * concederlo. No hay estado intermedio engañoso: o hay ventana o hay un botón
+ * que lleva a conceder el permiso.
+ */
+@Composable
+private fun FloatingHudCard(
+    overlay: OverlayUiState,
+    onToggle: () -> Unit,
+    onRequestPermission: () -> Unit,
+) {
+    RuntimeSectionCard(title = "HUD flotante") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Outlined.Layers,
+                contentDescription = null,
+                tint = if (overlay.running) NexoraAccent else NexoraTextSecondary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = when {
+                        overlay.running -> "Superposición activa"
+                        overlay.canDraw -> "Permiso concedido · HUD apagado"
+                        else -> "Sin permiso de superposición"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NexoraTextPrimary,
+                )
+                Text(
+                    text = "FPS, RAM y CPU sobre el juego, con cierre de emergencia. " +
+                        "Se puede arrastrar desde el asa.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NexoraTextSecondary,
+                )
+            }
+        }
+
+        overlay.error?.let {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = NexoraWarning,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (overlay.canDraw) {
+                Button(
+                    onClick = onToggle,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (overlay.running) NexoraSurfaceElevated else NexoraAccent,
+                        contentColor = if (overlay.running) NexoraTextPrimary else NexoraBackground,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Layers,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (overlay.running) "DETENER HUD" else "ACTIVAR HUD")
+                }
+            } else {
+                Button(
+                    onClick = onRequestPermission,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NexoraAccent,
+                        contentColor = NexoraBackground,
+                    ),
+                ) {
+                    Text("CONCEDER PERMISO")
+                }
+            }
         }
     }
 }

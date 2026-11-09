@@ -49,3 +49,17 @@ data class AudioBridgeUiState(
     val underruns: Int = 0,
     val error: String? = null,
 )
+
+/**
+ * Estado del HUD flotante (Fase 9).
+ *
+ * @property canDraw `true` si el usuario ha concedido "Aparecer encima de
+ *   otras apps". Sin eso no hay ventana posible y el botón debe pedirlo.
+ * @property running `true` si el servicio está dibujando la ventana.
+ * @property error Último motivo por el que no arrancó.
+ */
+data class OverlayUiState(
+    val canDraw: Boolean = false,
+    val running: Boolean = false,
+    val error: String? = null,
+)

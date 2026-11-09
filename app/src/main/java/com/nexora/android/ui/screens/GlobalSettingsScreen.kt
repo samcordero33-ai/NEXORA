@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -93,7 +93,7 @@ private fun GlobalSettingsScreen(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
-                    Icon(Icons.Outlined.ArrowBack, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null)
                 }
                 Spacer(modifier = Modifier.size(12.dp))
                 Text(

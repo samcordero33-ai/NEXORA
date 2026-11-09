@@ -44,3 +44,6 @@ val NexoraAccentMuted = Color(0xFF2C3A38)
 
 /** Estado de advertencia (p. ej. runtime no disponible). */
 val NexoraWarning = Color(0xFFFFB74D)
+
+/** Estado crítico: cierre de emergencia y umbrales superados (Fase 9). */
+val NexoraDanger = Color(0xFFFF5252)
