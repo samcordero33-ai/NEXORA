@@ -1,9 +1,13 @@
 package com.nexora.android.ui.runner
 
 import android.app.Application
+import android.media.AudioFormat
+import android.media.AudioTrack
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nexora.android.control.repository.ControlLayoutRepository
+import com.nexora.android.engine.input.InputEvent
 import com.nexora.android.engine.profile.AutoOptimizer
 import com.nexora.android.engine.profile.PerformanceParameters
 import com.nexora.android.engine.profile.PerformanceProfile
@@ -11,14 +15,23 @@ import com.nexora.android.engine.profile.ProfileRecommendation
 import com.nexora.android.game.data.local.NexoraDatabase
 import com.nexora.android.game.model.Game
 import com.nexora.android.game.repository.GameLibraryRepository
+import com.nexora.android.runtime.audio.AudioPipeline
 import com.nexora.android.runtime.audio.AudioSettings
+import com.nexora.android.runtime.audio.FifoPcmSource
+import com.nexora.android.runtime.binary.FilesystemBinaryResolver
+import com.nexora.android.runtime.binary.RuntimeBinaryLoader
+import com.nexora.android.runtime.binary.RuntimeLayout
 import com.nexora.android.runtime.diagnostics.DiagnosticsLogger
 import com.nexora.android.runtime.engine.AndroidProcessLauncher
+import com.nexora.android.runtime.engine.ProcessExecutionEngine
 import com.nexora.android.runtime.engine.RuntimeEngine
 import com.nexora.android.runtime.env.ComposedEnvironment
 import com.nexora.android.runtime.env.EnvironmentComposer
 import com.nexora.android.runtime.env.EnvironmentSettings
 import com.nexora.android.runtime.env.WinePrefix
+import com.nexora.android.runtime.input.EvdevInputTransport
+import com.nexora.android.runtime.input.InputBridge
+import com.nexora.android.runtime.input.ViewportMapping
 import com.nexora.android.runtime.monitor.AndroidRuntimeMonitorSource
 import com.nexora.android.runtime.monitor.RuntimeMonitorSnapshot
 import com.nexora.android.runtime.monitor.RuntimeMonitorSource
@@ -35,6 +48,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Estado de la pantalla de ejecución (`GameRunnerScreen`).
@@ -57,6 +71,9 @@ data class RuntimeUiState(
     val monitor: RuntimeMonitorSnapshot = RuntimeMonitorSnapshot.EMPTY,
     val monitorVisible: Boolean = false,
     val hudVisible: Boolean = true,
+    val runtime: RuntimeBinaryUiState = RuntimeBinaryUiState(),
+    val input: InputBridgeUiState = InputBridgeUiState(),
+    val audio: AudioBridgeUiState = AudioBridgeUiState(),
     val infoMessage: String? = null,
     val errorMessage: String? = null,
 ) {
@@ -87,9 +104,42 @@ class RuntimeViewModel(
     private val composer = EnvironmentComposer()
     private val autoOptimizer = AutoOptimizer()
 
-    private val engine = RuntimeEngine(launcher = AndroidProcessLauncher())
+    /** Instalador del runtime nativo (Fase 8). */
+    private val binaryLoader = RuntimeBinaryLoader(application.applicationContext)
+
+    /** Layout instalado; `null` hasta la primera comprobación. */
+    @Volatile
+    private var layout: RuntimeLayout? = null
+
+    /**
+     * Motor de ejecución real: resuelve binarios, arma la línea de comandos y
+     * completa `LD_LIBRARY_PATH`/`PATH` antes de delegar en `ProcessBuilder`.
+     */
+    private val executionEngine = ProcessExecutionEngine(
+        inner = AndroidProcessLauncher(
+            binaryResolver = FilesystemBinaryResolver(layoutProvider = { layout }),
+        ),
+        layoutProvider = { layout },
+        abis = Build.SUPPORTED_ABIS.toList(),
+        tmpDirProvider = {
+            File(application.filesDir, "tmp").apply { mkdirs() }.absolutePath
+        },
+    )
+
+    private val engine = RuntimeEngine(launcher = executionEngine)
     private val monitorSource: RuntimeMonitorSource =
         AndroidRuntimeMonitorSource(application.applicationContext)
+
+    /** Puente táctil → evdev. `null` mientras no haya sesión o nodo. */
+    private var inputBridge: InputBridge? = null
+    private var inputTransport: EvdevInputTransport? = null
+
+    /** Sumidero de audio real. */
+    private val audioPipeline = AudioPipeline()
+
+    /** Tamaño de la superficie de juego, que la UI comunica en píxeles. */
+    private var surfaceWidthPx: Float = 0f
+    private var surfaceHeightPx: Float = 0f
 
     private val mutableUiState = MutableStateFlow(RuntimeUiState())
     val uiState: StateFlow<RuntimeUiState> = mutableUiState.asStateFlow()
@@ -110,9 +160,19 @@ class RuntimeViewModel(
                         source = "engine",
                         message = "Estado Failed: ${status.reason}",
                     )
+                    stopBridges()
+                }
+                if (status is RuntimeStatus.Stopped) {
+                    stopBridges()
+                }
+                if (status is RuntimeStatus.Running) {
+                    mutableUiState.update {
+                        it.copy(input = it.input.copy(enabled = inputBridge?.enabled == true))
+                    }
                 }
             }
         }
+        installRuntime()
     }
 
     /**
@@ -133,6 +193,89 @@ class RuntimeViewModel(
                 message = "Cargando ${game.name} (${gameId})",
             )
         }
+    }
+
+    /**
+     * Instala (o comprueba) el runtime nativo en `filesDir/runtime`.
+     *
+     * Se llama al abrir la pantalla y cuando el usuario pulsa "Reinstalar".
+     * Nunca lanza: el resultado —incluidos los componentes que no venían en el
+     * APK— se refleja en [RuntimeUiState.runtime].
+     */
+    fun installRuntime(force: Boolean = false) {
+        mutableUiState.update {
+            it.copy(runtime = it.runtime.copy(installing = true, error = null))
+        }
+        viewModelScope.launch {
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                binaryLoader.ensureInstalled(force)
+            }
+            layout = outcome.layout
+
+            val declared = outcome.manifest.entries.map { it.component }.distinct()
+            val missing = declared
+                .filter { !outcome.layout.has(it) }
+                .map { it.label }
+
+            mutableUiState.update {
+                it.copy(
+                    runtime = RuntimeBinaryUiState(
+                        checked = true,
+                        installing = false,
+                        version = outcome.layout.version,
+                        components = outcome.layout.installedComponents.map { component -> component.label },
+                        missing = missing,
+                        canLaunch = outcome.layout.canLaunch,
+                        message = outcome.message,
+                        error = outcome.report?.failures?.firstOrNull()?.reason,
+                    ),
+                )
+            }
+            DiagnosticsLogger.shared.record(
+                level = if (outcome.layout.canLaunch) {
+                    com.nexora.android.runtime.diagnostics.DiagnosticsLevel.INFO
+                } else {
+                    com.nexora.android.runtime.diagnostics.DiagnosticsLevel.WARN
+                },
+                source = "runtime",
+                message = "${outcome.message} · ${outcome.report?.summary() ?: "sello al día"}",
+            )
+        }
+    }
+
+    /**
+     * La UI comunica el tamaño real de la superficie de juego (en píxeles) para
+     * que el puente táctil pueda escalar a coordenadas del escritorio virtual.
+     */
+    fun updateViewport(widthPx: Float, heightPx: Float) {
+        surfaceWidthPx = widthPx
+        surfaceHeightPx = heightPx
+        inputBridge?.mapping = buildMapping()
+    }
+
+    /** Envía un gesto del HUD al puente real. Silencioso si no hay sesión. */
+    fun dispatchInput(event: InputEvent) {
+        val bridge = inputBridge ?: return
+        bridge.dispatch(event)
+        mutableUiState.update {
+            it.copy(
+                input = it.input.copy(
+                    sentEvents = bridge.sentEvents,
+                    lastError = bridge.lastError,
+                ),
+            )
+        }
+    }
+
+    /** Permite silenciar la inyección sin cerrar la sesión. */
+    fun setInputEnabled(enabled: Boolean) {
+        val bridge = inputBridge
+        if (bridge == null) {
+            mutableUiState.update { it.copy(input = it.input.copy(enabled = false)) }
+            return
+        }
+        bridge.enabled = enabled
+        mutableUiState.update { it.copy(input = it.input.copy(enabled = enabled)) }
     }
 
     /** Cambia el modo del monitor (FPS/RAM/temp). */
@@ -169,10 +312,19 @@ class RuntimeViewModel(
                 ).createIfMissing()
             }
             val preparation = engine.prepare(env = composed, ensurePrefix = {})
+            val runtimeWarning = if (layout?.canLaunch != true) {
+                listOf(
+                    "No hay binarios de Wine instalados en filesDir/runtime: el motor " +
+                        "fallará con BinaryNotInstalledException. Copia el runtime en " +
+                        "assets/runtime/ (ver manifest.txt) y pulsa Reinstalar.",
+                )
+            } else {
+                emptyList()
+            }
             mutableUiState.update {
                 it.copy(
                     composed = preparation.environment,
-                    warnings = preparation.warnings,
+                    warnings = preparation.warnings + runtimeWarning,
                     status = engine.status.value,
                 )
             }
@@ -187,6 +339,11 @@ class RuntimeViewModel(
         }
         try {
             engine.launch(env = composed)
+            // Los puentes se abren solo si el proceso llegó a arrancar: un
+            // AudioTrack o un nodo evdev abiertos sin motor son recursos
+            // ocupados para nada.
+            startAudio(composed.winePrefixPath)
+            startInput()
         } catch (error: Throwable) {
             mutableUiState.update {
                 it.copy(errorMessage = error.message ?: error.javaClass.simpleName)
@@ -253,6 +410,7 @@ class RuntimeViewModel(
 
     /** Cierra el motor y libera todo lo que tenga un ciclo de vida. */
     fun shutdown() {
+        stopBridges()
         monitorJob?.cancel()
         monitorJob = null
         logsJob?.cancel()
@@ -396,6 +554,138 @@ class RuntimeViewModel(
                 delay(500L)
             }
         }
+    }
+
+    /**
+     * Abre el `AudioTrack` y conecta el FIFO de audio del prefijo.
+     *
+     * El FIFO lo crea el motor al arrancar el contenedor; hasta entonces el
+     * pipeline queda en `WAITING` y reintenta. Si el dispositivo no soporta el
+     * formato, `AudioBridgeUiState.state` pasa a `FAILED` y el juego sigue
+     * ejecutándose sin sonido.
+     */
+    private fun startAudio(winePrefixPath: String) {
+        val settings = mutableUiState.value.audioSettings
+        val minBuffer = runCatching {
+            AudioTrack.getMinBufferSize(
+                settings.sampleRate.hz,
+                AudioFormat.CHANNEL_OUT_STEREO,
+                AudioFormat.ENCODING_PCM_16BIT,
+            )
+        }.getOrDefault(0)
+
+        val source = FifoPcmSource(
+            path = "$winePrefixPath/nexora-audio.fifo",
+            sampleRateHz = settings.sampleRate.hz,
+            channelCount = 2,
+        )
+        val started = audioPipeline.start(
+            settings = settings,
+            source = source,
+            minBufferBytes = if (minBuffer > 0) minBuffer else 4096,
+        )
+        val stats = audioPipeline.stats()
+        mutableUiState.update {
+            it.copy(
+                audio = AudioBridgeUiState(
+                    state = if (started) audioPipeline.state.name else "FAILED",
+                    sampleRateHz = settings.sampleRate.hz,
+                    bufferFrames = stats?.bufferFrames ?: 0,
+                    latencyMs = stats?.latencyMs ?: 0,
+                    secondsPlayed = stats?.secondsPlayed ?: 0.0,
+                    underruns = stats?.underruns ?: 0,
+                    error = audioPipeline.lastError ?: stats?.lastError,
+                ),
+            )
+        }
+        DiagnosticsLogger.shared.record(
+            level = if (started) {
+                com.nexora.android.runtime.diagnostics.DiagnosticsLevel.INFO
+            } else {
+                com.nexora.android.runtime.diagnostics.DiagnosticsLevel.WARN
+            },
+            source = "audio",
+            message = if (started) {
+                "AudioTrack abierto a ${settings.sampleRate.hz} Hz (${stats?.latencyMs ?: 0} ms de búfer)"
+            } else {
+                "AudioTrack no arrancó: ${audioPipeline.lastError}"
+            },
+        )
+    }
+
+    /**
+     * Abre el puente táctil contra el primer nodo `evdev` escribible.
+     *
+     * En un dispositivo sin root no habrá ninguno: se informa y el HUD sigue
+     * funcionando en pantalla, pero no inyecta eventos. Fingir que se envía
+     * sería peor que decirlo.
+     */
+    private fun startInput() {
+        if (inputBridge != null) return
+        val node = EvdevInputTransport.findWritableNode()
+        if (node == null) {
+            mutableUiState.update {
+                it.copy(
+                    input = InputBridgeUiState(
+                        enabled = false,
+                        transport = "sin nodo accesible",
+                        lastError = "No hay /dev/uinput ni /dev/input/event* escribible: " +
+                            "la inyección necesita un nodo de entrada accesible (root o helper).",
+                    ),
+                )
+            }
+            return
+        }
+        val transport = EvdevInputTransport(node)
+        val bridge = InputBridge(mapping = buildMapping(), transport = transport, enabled = true)
+        inputTransport = transport
+        inputBridge = bridge
+        mutableUiState.update {
+            it.copy(
+                input = InputBridgeUiState(
+                    enabled = true,
+                    transport = transport.description,
+                ),
+            )
+        }
+        DiagnosticsLogger.shared.record(
+            level = com.nexora.android.runtime.diagnostics.DiagnosticsLevel.INFO,
+            source = "input",
+            message = "Puente táctil abierto en $node",
+        )
+    }
+
+    /** Cierra audio y entrada; idempotente. */
+    private fun stopBridges() {
+        audioPipeline.stop()
+        inputTransport?.close()
+        inputTransport = null
+        inputBridge = null
+        mutableUiState.update {
+            it.copy(
+                input = it.input.copy(enabled = false),
+                audio = it.audio.copy(state = "STOPPED"),
+            )
+        }
+    }
+
+    /**
+     * Mapeo pantalla → escritorio virtual.
+     *
+     * El escritorio sale del perfil de rendimiento (Fase 4); si el perfil es
+     * "nativa" (0 × 0) se usa el tamaño real de la superficie, que es lo que
+     * el usuario está viendo.
+     */
+    private fun buildMapping(): ViewportMapping {
+        val preset = mutableUiState.value.parameters.resolution
+        val desktopWidth = if (preset.width > 0) preset.width else surfaceWidthPx.toInt().coerceAtLeast(1)
+        val desktopHeight = if (preset.height > 0) preset.height else surfaceHeightPx.toInt().coerceAtLeast(1)
+        return ViewportMapping(
+            surfaceWidth = surfaceWidthPx.coerceAtLeast(1f),
+            surfaceHeight = surfaceHeightPx.coerceAtLeast(1f),
+            desktopWidth = desktopWidth,
+            desktopHeight = desktopHeight,
+        )
     }
 
     private fun stopMonitor() {

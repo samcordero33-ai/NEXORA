@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,6 +71,9 @@ import com.nexora.android.ui.components.RuntimeLogSummary
 import com.nexora.android.ui.components.RuntimeMonitorCard
 import com.nexora.android.ui.components.RuntimeSectionCard
 import com.nexora.android.ui.components.TouchControlsOverlay
+import com.nexora.android.ui.runner.AudioBridgeUiState
+import com.nexora.android.ui.runner.InputBridgeUiState
+import com.nexora.android.ui.runner.RuntimeBinaryUiState
 import com.nexora.android.ui.runner.RuntimeViewModel
 import com.nexora.android.ui.theme.NexoraAccent
 import com.nexora.android.ui.theme.NexoraAccentMuted
@@ -133,7 +137,9 @@ fun GameRunnerRoute(
         onResetSettings = viewModel::resetSettings,
         onSaveAudio = viewModel::saveAudioSettings,
         onResetAudio = viewModel::resetAudioSettings,
-        onGesture = { /* los gestos se envían al runtime en una fase posterior */ },
+        onGesture = viewModel::dispatchInput,
+        onInstallRuntime = viewModel::installRuntime,
+        onViewportChange = viewModel::updateViewport,
         onDismissMessage = viewModel::dismissMessages,
         modifier = modifier,
     )
@@ -160,6 +166,8 @@ fun GameRunnerScreen(
     onSaveAudio: (com.nexora.android.runtime.audio.AudioSettings) -> Unit,
     onResetAudio: () -> Unit,
     onGesture: (InputEvent) -> Unit,
+    onInstallRuntime: (Boolean) -> Unit,
+    onViewportChange: (Float, Float) -> Unit,
     onDismissMessage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -189,6 +197,7 @@ fun GameRunnerScreen(
                 monitor = uiState.monitor,
                 isRunning = isRunning,
                 onGesture = onGesture,
+                onViewportChange = onViewportChange,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -218,6 +227,15 @@ fun GameRunnerScreen(
                 onPause = onPause,
                 onResume = onResume,
                 onKill = onKill,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            EngineCard(
+                runtime = uiState.runtime,
+                input = uiState.input,
+                audio = uiState.audio,
+                onInstall = onInstallRuntime,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -339,7 +357,9 @@ private fun GameSurface(
     monitor: com.nexora.android.runtime.monitor.RuntimeMonitorSnapshot,
     isRunning: Boolean,
     onGesture: (InputEvent) -> Unit,
+    onViewportChange: (Float, Float) -> Unit,
 ) {
+    val density = LocalDensity.current
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -348,6 +368,12 @@ private fun GameSurface(
             .background(Color(0xFF02050A))
             .border(1.dp, NexoraBorder, RoundedCornerShape(16.dp)),
     ) {
+        val widthPx = with(density) { maxWidth.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+        LaunchedEffect(widthPx, heightPx) {
+            onViewportChange(widthPx, heightPx)
+        }
+
         // Patrón de cuadrícula para que se vea que es una "superficie de juego".
         Box(
             modifier = Modifier
@@ -779,6 +805,149 @@ private fun MessageCard(message: String, isError: Boolean, onDismiss: () -> Unit
             OutlinedButton(onClick = onDismiss, shape = RoundedCornerShape(10.dp)) {
                 Text("OK", style = MaterialTheme.typography.labelMedium)
             }
+        }
+    }
+}
+/**
+ * Tarjeta del motor nativo (Fase 8).
+ *
+ * Enseña tres cosas que antes eran stubs: si el runtime está extraído y con
+ * permisos, a qué nodo de entrada se están enviando los gestos y en qué estado
+ * está el `AudioTrack`. Los tres son datos reales del dispositivo, no una
+ * promesa: si algo no está, se dice.
+ */
+@Composable
+private fun EngineCard(
+    runtime: RuntimeBinaryUiState,
+    input: InputBridgeUiState,
+    audio: AudioBridgeUiState,
+    onInstall: (Boolean) -> Unit,
+) {
+    RuntimeSectionCard(title = "Motor nativo") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (runtime.canLaunch) {
+                        "Runtime instalado · v${runtime.version}"
+                    } else {
+                        "Sin binarios de Wine"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NexoraTextPrimary,
+                )
+                Text(
+                    text = runtime.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NexoraTextSecondary,
+                )
+            }
+            Text(
+                text = when {
+                    runtime.installing -> "INSTALANDO"
+                    runtime.canLaunch -> "LISTO"
+                    else -> "SIN MOTOR"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = when {
+                    runtime.installing -> NexoraWarning
+                    runtime.canLaunch -> NexoraAccent
+                    else -> NexoraWarning
+                },
+            )
+        }
+
+        if (runtime.components.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Instalados: ${runtime.components.joinToString(", ")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = NexoraTextSecondary,
+            )
+        }
+        if (runtime.missing.isNotEmpty()) {
+            Text(
+                text = "Sin empaquetar: ${runtime.missing.joinToString(", ")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = NexoraTextSecondary,
+            )
+        }
+        runtime.error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = NexoraWarning,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { onInstall(true) },
+            enabled = !runtime.installing,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(text = if (runtime.installing) "EXTRAYENDO…" else "REINSTALAR RUNTIME")
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(NexoraBorder),
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = if (input.enabled) "Entrada táctil → ${input.transport}" else "Entrada táctil desactivada",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (input.enabled) NexoraTextPrimary else NexoraTextSecondary,
+        )
+        Text(
+            text = "${input.sentEvents} eventos evdev enviados",
+            style = MaterialTheme.typography.bodySmall,
+            color = NexoraTextSecondary,
+        )
+        input.lastError?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = NexoraWarning,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Audio ${audio.state} · ${audio.sampleRateHz} Hz · " +
+                "${audio.bufferFrames} frames · ${audio.latencyMs} ms",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (audio.state == "PLAYING" || audio.state == "WAITING") {
+                NexoraTextPrimary
+            } else {
+                NexoraTextSecondary
+            },
+        )
+        if (audio.secondsPlayed > 0.0) {
+            Text(
+                text = "${"%.1f".format(audio.secondsPlayed)} s reproducidos · " +
+                    "${audio.underruns} underruns",
+                style = MaterialTheme.typography.bodySmall,
+                color = NexoraTextSecondary,
+            )
+        }
+        audio.error?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = NexoraWarning,
+            )
         }
     }
 }

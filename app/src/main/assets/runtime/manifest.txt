@@ -1,0 +1,50 @@
+# NEXORA · manifiesto del runtime (Fase 8)
+#
+# Cada sección declara un archivo que la app copia a filesDir/runtime y, si
+# procede, marca como ejecutable. Los binarios NO viajan en el APK: se colocan
+# en app/src/main/assets/runtime/ antes de compilar (o se aportan con un
+# paquete de expansión) y este manifiesto los describe.
+#
+# Formato: clave=valor. Claves admitidas: asset, target, sha256, executable,
+# size. Las líneas con # se ignoran. Un componente sin asset simplemente se
+# reporta como "no empaquetado"; la app sigue funcionando.
+#
+# Para activar el motor real:
+#   1. Copia los binarios a app/src/main/assets/runtime/ respetando `asset`.
+#   2. Calcula su huella:  sha256sum wine64
+#   3. Pega el valor en `sha256=` (sin el prefijo "sha256:").
+#   4. Ajusta `size=` en bytes. Sin huella ni tamaño, el archivo se copia sin
+#      verificar: aceptable para pruebas, no para distribución.
+
+version=8
+
+[box64]
+# Traductor x86_64 -> ARM64. Solo se usa si el dispositivo es ARM.
+asset=bin/box64
+target=bin/box64
+executable=true
+
+[wine]
+# Contenedor Wine. Es el único componente imprescindible para lanzar.
+asset=bin/wine64
+target=bin/wine64
+executable=true
+
+[tools]
+# Utilidades del prefijo: wineboot, wineserver, winetricks.
+asset=bin/wineboot
+target=bin/wineboot
+executable=true
+
+[dxvk]
+# DLLs de DXVK. No son ejecutables: se copian junto a Wine y se activan con
+# WINEDLLOVERRIDES (lo hace EnvironmentComposer desde la Fase 6).
+asset=lib/wine/x86_64-windows/d3d11.dll
+target=lib/wine/x86_64-windows/d3d11.dll
+executable=false
+
+[turnip]
+# Driver Vulkan para Adreno (Mesa Turnip).
+asset=lib/libvulkan_freedreno.so
+target=lib/libvulkan_freedreno.so
+executable=false

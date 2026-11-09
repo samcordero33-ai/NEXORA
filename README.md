@@ -1,4 +1,4 @@
-# NEXORA v0.7 — Fase 7
+# NEXORA v0.8 — Fase 8
 
 **Windows Gaming Runtime for Android.**
 
@@ -22,7 +22,7 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   vida completo (Preparar → Lanzar → Pausar → Reanudar → Kill) y captura de
   stdout/stderr en vivo, y **GameRunnerScreen** con HUD táctil integrado y
   monitor técnico flotante opcional (FPS, RAM, temperatura estimada).
-- **Fase 7 (v0.7, esta versión):** audio de **baja latencia** (backend
+- **Fase 7 (v0.7):** audio de **baja latencia** (backend
   AAudio / OpenSL ES / PulseAudio, frecuencia 44,1 / 48 kHz y buffer en
   frames con cálculo de latencia real), **caché y partidas guardadas**
   (exportación e importación de `Savegames` en ZIP, limpieza de la caché de
@@ -30,18 +30,28 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   vivo y exportación del registro a `.txt`, **ajustes globales** (tema,
   animaciones, autoguardado de logs, almacenamiento y reseteo) y
   **animaciones** de transición entre biblioteca, detalle y ejecución.
+- **Fase 8 (v0.8, esta versión):** **motor de ejecución real**: instalación y
+  verificación de binarios con permisos de ejecución, orquestador de procesos
+  con `LD_LIBRARY_PATH` y `PATH` completos, **puente táctil `evdev`** que
+  escribe eventos del kernel (`input_event`) y **salida de audio real** con
+  `AudioTrack` en modo baja latencia.
 
-> **El runtime sigue sin traer un motor real.** No hay Wine, Box64, FEX-Emu,
-> DXVK ni drivers Mesa/Turnip empaquetados, y **no se ejecuta ningún binario
-> de Windows**: el launcher (`AndroidBinaryResolver`) devuelve siempre `null`
-> y el motor falla de forma explícita con `BinaryNotInstalledException`. La
-> UI muestra la causa y los pasos para integrar el conector JNI/NDK en una
-> fase posterior. La Fase 7 tampoco toca el sistema de audio de Android:
-> compone las **variables de entorno** que consumirá el motor cuando exista.
+> **El motor es real, los binarios no viajan en el APK.** La Fase 8 sustituye
+> los stubs por la maquinaria completa —extracción, verificación SHA-256,
+> `chmod`, `ProcessBuilder` con entorno y `LD_LIBRARY_PATH`, puente `evdev` y
+> `AudioTrack`—, pero **NEXORA no redistribuye Wine, Box64, DXVK ni Turnip**:
+> pesan cientos de megabytes, tienen licencias propias y dependen del SoC. Si
+> `filesDir/runtime` está vacío, el motor falla de forma explícita con
+> `BinaryNotInstalledException` y la UI dice exactamente qué falta y dónde
+> ponerlo (`assets/runtime/manifest.txt`).
 >
-> **No avanza a la Fase 8.** El envío real de los `InputEvent` al proceso
-> del juego, el empaquetado de los binarios y la capa JNI/NDK son trabajo
-> de una versión posterior.
+> **Lo que sí funciona sin binarios:** la app compila, arranca, instala y
+> verifica lo que encuentre, abre el `AudioTrack`, intenta abrir un nodo
+> `evdev` y lo reporta. Lo que no puede hacer es ejecutar un `.exe` que no
+> tiene con qué ejecutar.
+>
+> **No avanza a la Fase 9.** Crear un dispositivo `uinput` propio (requiere
+> `ioctl`, es decir JNI) y empaquetar los binarios siguen fuera de alcance.
 
 ## Requisitos cumplidos
 
@@ -95,6 +105,18 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
 | Tema, animaciones y reseteo de ajustes/controles persistidos | ✔ `AppTheme`, `animationsEnabled`, `resetAll()` |
 | **Transiciones fluidas (Fase 7)** | ✔ `AnimatedContent` (slide + fade) en `HomeScreen` |
 | Migración Room aditiva 4 → 5 sin alterar datos previos | ✔ `MIGRATION_4_5` (dos tablas nuevas, sin `ALTER`) |
+| **Instalación de binarios (Fase 8)** | ✔ `RuntimeBinaryLoader` + `BinaryInstaller` + `BinarySource` |
+| Extracción desde `assets` hacia `filesDir` con verificación SHA-256 | ✔ `Sha256` + escritura a `.part` + `renameTo` |
+| Permisos de ejecución aplicados desde Kotlin | ✔ `setExecutable(true, true)` antes de lanzar |
+| **Orquestador de procesos (Fase 8)** | ✔ `ProcessExecutionEngine` (implementa `ProcessLauncher`) |
+| `ProcessBuilder` con `WINEPREFIX`, `DXVK_HUD`, `BOX64_DYNAREC`… | ✔ `EnvironmentComposer` (Fase 6) + `ExecEnvironment` |
+| Rutas de bibliotecas (`LD_LIBRARY_PATH`, `BOX64_LD_LIBRARY_PATH`) | ✔ `ExecEnvironment.build()` (5 pruebas) |
+| Captura asíncrona de `stdout`/`stderr` | ✔ `LogStreamer` + `Channel` acotado, ya conectado al visor |
+| **Puente táctil real (Fase 8)** | ✔ `InputBridge` + `UinputEvent` + `EvdevInputTransport` |
+| Traducción de clics, zoom, arrastre y teclas a `input_event` | ✔ 11 pruebas de secuencia + 5 de mapeo de coordenadas |
+| Escalado pantalla → escritorio virtual con recorte | ✔ `ViewportMapping` (`ABS_MAX_VALUE = 32767`) |
+| **Audio real (Fase 8)** | ✔ `AudioTrackSink` + `AudioPipeline` + `FifoPcmSource` |
+| `AudioTrack` 44,1/48 kHz con búfer calculado y modo baja latencia | ✔ `AudioSinkConfig` (6 pruebas) + `PERFORMANCE_MODE_LOW_LATENCY` |
 
 ## Stack
 
@@ -130,9 +152,16 @@ com.nexora.android/
 │   │                           # TouchControlsOverlay, HudControls
 │   ├── util/Format.kt          # formateo de tamaños y fechas
 │   └── theme/{Color,Theme,Type}.kt
-├── runtime/                    # orquestador del motor (Fase 6) + audio/caché/diagnóstico (Fase 7)
+├── runtime/                    # motor (Fase 6), audio/caché/diagnóstico (Fase 7),
+│   │                           # binarios/entrada/ejecución real (Fase 8)
+│   ├── binary/                 # RuntimeManifest, BinaryInstaller, BinarySource,
+│   │                           # RuntimeBinaryLoader, RuntimeLayout,
+│   │                           # FilesystemBinaryResolver, Sha256
+│   ├── input/                  # UinputEvent + KeyCodeMapper, ViewportMapping,
+│   │                           # InputBridge, EvdevInputTransport
 │   ├── audio/                  # AudioBackend, AudioSampleRate, AudioBufferFrames,
-│   │                           # AudioSettings, AudioComposer (función pura)
+│   │                           # AudioSettings, AudioComposer, AudioSinkConfig,
+│   │                           # AudioTrackSink, AudioPipeline, FifoPcmSource
 │   ├── saves/                  # SaveBackupArchive, SaveImporter,
 │   │                           # ShaderCacheCleaner, TempFileCleaner
 │   ├── diagnostics/            # DiagnosticsEvent, DiagnosticsLogger (ring buffer),
@@ -357,10 +386,11 @@ distingue `AUTOMÁTICO` de `MANUAL`.
 ### `runtime/` — orquestador del motor (Fase 6)
 
 La capa de integración es la pieza que conecta los perfiles (Fase 4) y los
-controles (Fase 5) con un eventual binario de Wine/Box64/DXVK. Hoy no trae
-los binarios: está diseñada como un **conjunto de `interface`s + una
-implementación honesta** que falla de forma visible cuando el conector JNI/NDK
-no resuelve nada.
+controles (Fase 5) con un eventual binario de Wine/Box64/DXVK. Nació como un
+**conjunto de `interface`s + una implementación honesta** que fallaba de forma
+visible; la Fase 8 la completa con instalación, `ProcessBuilder` real y
+`LD_LIBRARY_PATH` (ver [`runtime/binary/`](#runtimebinary--instalación-del-runtime-fase-8)
+y [`runtime/engine/`](#runtimeengine--orquestación-real-del-proceso-fase-8)).
 
 - **`runtime/env/`** — `EnvironmentVariables.kt` declara los enums
   (`DxvkHudPreset`, `Box64LogLevel`, `Box64DynarecSize`, `GalliumDriver`,
@@ -508,6 +538,131 @@ sale con `fadeOut + slideOutHorizontally`. La dirección se deriva del estado,
 no de la pila de navegación, así que no hay que mantener un historial paralelo.
 Si el usuario desactiva las animaciones en los ajustes globales, la transición
 dura `0 ms` y el contenido cambia en seco.
+
+### `runtime/binary/` — instalación del runtime (Fase 8)
+
+El motor ya no es un stub: instala, verifica y marca como ejecutables los
+binarios que encuentre. Lo que **no** hace es traerlos.
+
+`assets/runtime/manifest.txt` describe qué se espera, en texto plano:
+
+```ini
+version=8
+[wine]
+asset=bin/wine64
+target=bin/wine64
+sha256=9f2c…
+executable=true
+size=104857600
+```
+
+`RuntimeBinaryLoader` lee ese manifiesto, calcula un **sello** (SHA-256 del
+manifiesto + versión) y lo guarda en `runtime/.manifest.sha256`. Si el sello
+coincide, no vuelve a copiar nada: reconstruye el layout leyendo el disco, que
+es barato. Si cambia —o el usuario pulsa *Reinstalar*—, extrae lo que falte.
+
+`BinaryInstaller` aplica cuatro reglas que no se negocian:
+
+1. **Nada se escribe fuera de `filesDir/runtime`.** El destino se resuelve con
+   `canonicalFile` y se comprueba el prefijo: un manifiesto manipulado con
+   `../../` no puede tocar datos de la app.
+2. **Se escribe a `.part` y se renombra.** Si el proceso muere a mitad de
+   copia, no queda un `wine64` truncado que luego falle de forma críptica.
+3. **La huella se verifica antes de renombrar.** Un binario alterado nunca
+   llega a su ruta definitiva; el `.part` se borra y se reporta el motivo.
+4. **Los permisos se aplican desde Kotlin**: `setExecutable(true, true)` —
+   solo el dueño, nunca `chmod 777`.
+
+Un componente cuyo `asset` no existe **no es un fallo**: se lista en
+`InstallReport.missing` y la UI lo muestra como "sin empaquetar". Así el
+manifiesto puede declarar los cuatro componentes y la app seguir funcionando
+con cero binarios.
+
+`FilesystemBinaryResolver` busca, en orden: ruta absoluta ejecutable →
+`filesDir/runtime/bin/<nombre>` → `PATH` del sistema. Un archivo que existe pero
+no es ejecutable **no** se devuelve: sería cambiar un error claro
+(`BinaryNotInstalledException`) por un `Permission denied` del kernel.
+
+### `runtime/engine/` — orquestación real del proceso (Fase 8)
+
+`ProcessExecutionEngine` implementa `ProcessLauncher`, así que encaja sin tocar
+la máquina de estados de la Fase 6. En cada lanzamiento:
+
+| Paso | Pieza | Resultado |
+|---|---|---|
+| 1 | `RuntimeLayout` | rutas de Wine, Box64 y `wineboot` |
+| 2 | `WineCommandBuilder` | `box64 wine64 juego.exe` en ARM; `wine64 juego.exe` en x86_64 |
+| 3 | `ExecEnvironment` | `PATH`, `LD_LIBRARY_PATH`, `BOX64_LD_LIBRARY_PATH`, `HOME`, `TMPDIR`, `PULSE_SERVER` |
+| 4 | `AndroidProcessLauncher` | `ProcessBuilder` real, `cwd` = carpeta del `.exe` |
+| 5 | `LogStreamer` | `stdout`/`stderr` asíncronos al visor |
+
+La decisión del traductor es explícita: en ARM64 los `.exe` son x86_64 y
+necesitan Box64 delante; en x86_64 nativo Box64 sobra y solo añade una capa de
+traducción. Si el dispositivo es ARM y no hay Box64, se lanza solo Wine **con
+un aviso**, porque un binario de la misma arquitectura todavía podría correr.
+
+`LD_LIBRARY_PATH` incluye `lib`, `lib/wine`, `lib/wine/x86_64-unix` y
+`lib/wine/i386-unix`: Wine carga `libwine.so` y las DLL de DXVK desde ahí, no
+desde el `PATH` del sistema. `HOME` apunta al prefijo para que Wine escriba
+`dosdevices` dentro de la app.
+
+### `runtime/input/` — puente táctil real (Fase 8)
+
+Los gestos de la Fase 5 se convierten en estructuras `input_event` del kernel,
+que es el mismo camino que usa `sendevent` y el que leen Wine (vía evdev) y un
+servidor X de Android.
+
+| Gesto | Secuencia `evdev` |
+|---|---|
+| `CursorMove` | `ABS_X` + `ABS_Y` + `SYN_REPORT` |
+| `PrimaryClick` | mover + `BTN_LEFT 1` + SYN + `BTN_LEFT 0` + SYN |
+| `SecondaryClick` | mover + `BTN_RIGHT 1/0` + SYN |
+| `SelectionRect` | pulsar, 8 pasos interpolados, soltar |
+| `CameraZoom` | `REL_WHEEL` ±1 por muesca (máx. ±3) |
+| `CameraPan` | desplazamiento relativo del absoluto anterior |
+| `KeyAction` | `EV_KEY` por tecla; al soltar, orden inverso |
+
+La estructura se serializa a mano en **24 bytes** (timeval de 16 + `type` u16 +
+`code` u16 + `value` s32, little-endian): no hace falta JNI para escribirla.
+
+**Por qué no se crea el dispositivo `uinput`:** `UI_DEV_SETUP` y
+`UI_DEV_CREATE` son `ioctl`, y `ioctl` no está en la API pública de Android sin
+JNI. Escribir en un nodo **ya existente** sí se puede desde Kotlin. El puente
+busca el primer `/dev/input/event*` escribible y, si no hay, `/dev/uinput`. En
+un dispositivo sin root no habrá ninguno: la tarjeta "Motor nativo" lo dice y
+el HUD sigue funcionando en pantalla, sin fingir que inyecta.
+
+`ViewportMapping` escala píxeles de pantalla a píxeles del escritorio virtual y
+al rango absoluto 0..32767, con recorte en los bordes: un dedo que sale del
+área del juego se sujeta al borde en vez de generar un valor que el kernel
+rechaza.
+
+### `runtime/audio/` — reproducción real (Fase 8)
+
+La Fase 7 componía variables (`NEXORA_AUDIO_RATE`, `PULSE_LATENCY_MSEC`); la
+Fase 8 abre un `AudioTrack` de verdad:
+
+```kotlin
+AudioTrack.Builder()
+    .setAudioAttributes(USAGE_GAME + CONTENT_TYPE_MUSIC)
+    .setAudioFormat(PCM_16BIT, 48_000 Hz, estéreo)
+    .setTransferMode(MODE_STREAM)
+    .setPerformanceMode(PERFORMANCE_MODE_LOW_LATENCY)   // si el búfer ≤ 192 frames
+```
+
+`AudioSinkConfig` calcula el búfer: **el doble del periodo elegido**, alineado a
+frames y nunca por debajo del mínimo del sistema (`getMinBufferSize`). Con 192
+frames a 48 kHz son 1536 bytes, 384 frames de búfer y **8 ms** de latencia
+teórica; con el mínimo de 4096 bytes, 21 ms.
+
+`AudioPipeline` bombea desde un **FIFO** del prefijo
+(`nexora-audio.fifo`): el motor escribe PCM y la app lo lee. Si el FIFO aún no
+existe queda en `WAITING` y reintenta, porque el juego tarda más en abrir el
+audio que la app en estar lista. `WRITE_BLOCKING` hace el control de flujo: si
+la app va por delante se bloquea, y los *underruns* quedan contados en la UI.
+
+Un fallo de `AudioTrack` no tumba la sesión: el juego sigue sin sonido y la
+tarjeta lo dice. Un juego mudo es mejor que un cierre inesperado.
 
 ### `engine/profile/` — AutoOptimizer (Fase 4)
 
@@ -845,15 +1000,19 @@ En cada push a `main`, GitHub Actions compila y publica el artefacto
 ```
 ./gradlew assembleDebug      -> BUILD SUCCESSFUL
 ./gradlew assembleRelease    -> BUILD SUCCESSFUL
-./gradlew testDebugUnitTest  -> 108 tests, 0 failures, 0 errors
+./gradlew testDebugUnitTest  -> 159 tests, 0 failures, 0 errors
 ```
 
 Reparto de pruebas: 9 del escáner (Fase 2), 8 del mapeo de la entidad + perfil
 (Fase 3/4), 9 del AutoOptimizer y 10 del catálogo de perfiles y la detección de
 pistas (Fase 4), 11 del motor de gestos y 8 del layout de controles (Fase 5),
-26 del entorno y del motor (Fase 6) y **27 de la Fase 7** (13 de audio, 8 de
-partidas y caché, 6 de diagnóstico). Todas JVM puras: ni Robolectric ni
-instrumentación, porque ninguna de estas clases toca Android.
+26 del entorno y del motor (Fase 6), **27 de la Fase 7** (13 de audio, 8 de
+partidas y caché, 6 de diagnóstico) y **51 de la Fase 8** (12 de binarios y
+manifiesto, 14 de ejecución y entorno, 19 de entrada táctil y 6 de
+configuración de audio). Todas JVM puras: ni Robolectric ni instrumentación,
+porque ninguna de estas clases toca Android; las que sí lo tocan
+(`AudioTrackSink`, `RuntimeBinaryLoader`, `EvdevInputTransport`) son envoltorios
+finos sobre APIs del sistema, y su lógica de decisión vive en clases puras.
 
 Los únicos avisos del compilador son cuatro **desusos de
 `Icons.Outlined.ArrowBack`**: el BOM 2024.02.00 (`material-icons-extended
@@ -941,8 +1100,9 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
   → running → paused → stopped) sin un `.exe`. El paquete `engine` se
   prueba sin dispositivo (8 pruebas).
 - **El resolver de binarios es honesto por defecto.** `AndroidBinaryResolver`
-  siempre devuelve `null`, lo que dispara `BinaryNotInstalledException` en
-  el launcher. Es deliberado: en un Android sin root y sin conector NDK, no
+  siempre devolvía `null`, lo que dispara `BinaryNotInstalledException` en
+  el launcher (la Fase 8 lo sustituye por `FilesystemBinaryResolver`, que
+  devuelve `null` cuando no hay nada ejecutable). Es deliberado: en un Android sin root y sin conector NDK, no
   hay `wine`, `wine64` ni `box64` instalados; mejor fallar visiblemente
   que fingir éxito. La `fun interface BinaryResolver` deja la puerta
   abierta a un módulo NDK/JNI que la provea.
@@ -1028,19 +1188,50 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
   hay un historial de navegación que mantener sincronizado; y si el usuario
   apaga las animaciones, el cambio es instantáneo y no queda código muerto.
 
-## Fase 8 (fuera de esta versión)
+## Decisiones de la Fase 8
 
-- Empaquetado de los binarios de **Wine / Box64 (o FEX-Emu) / DXVK / drivers
-  Mesa-Turnip** y conector **JNI/NDK** que materialice el
-  `BinaryResolver`. La capa actual asume esa pieza como una `fun interface`
-  y falla de forma explícita cuando el resolver devuelve `null`.
-- **Envío real de los `InputEvent`** al proceso del juego (`wine64` recibe
-  punteros sintéticos, DInput/uinput, etc.). Hoy los gestos se reconocen y
-  quedan en memoria: no llegan a ningún `.exe`.
+- **La maquinaria es real; los binarios no se redistribuyen.** Wine, Box64,
+  DXVK y Turnip pesan cientos de megabytes, tienen licencias propias y dependen
+  del SoC. Lo honesto es implementar la extracción, la verificación y el
+  lanzamiento, y dejar el paquete como algo que el usuario o el fabricante
+  aporta. Si no está, el error es explícito y accionable.
+- **`.part` + `renameTo`, no escritura directa.** Un binario a medio copiar es
+  peor que ninguno: falla en el momento menos oportuno y con un mensaje que no
+  explica nada. El renombrado es atómico en el mismo sistema de archivos.
+- **SHA-256 antes que permisos.** Marcar como ejecutable un archivo que no es
+  el que se esperaba es exactamente cómo se instala un binario ajeno. La huella
+  se comprueba sobre el `.part`; si no coincide, se borra.
+- **`setExecutable(true, true)`.** `chmod 777` es la tentación y es un error:
+  otro proceso del dispositivo no necesita ejecutar los binarios de la app.
+- **El traductor se decide por arquitectura, no por preferencia.** Box64 en un
+  x86_64 solo añade latencia. En ARM es obligatorio para un `.exe` x86_64, pero
+  si falta se avisa y se intenta igual: puede ser un binario ARM.
+- **`cwd` = carpeta del `.exe`.** Muchos juegos resuelven rutas relativas a su
+  directorio; arrancarlos desde `filesDir` hace que no encuentren sus assets.
+- **Se escribe `input_event` a mano, sin JNI.** Son 24 bytes little-endian y
+  es lo mismo que hace `sendevent`. Crear el dispositivo sí exige `ioctl`, y
+  por eso el puente usa un nodo existente y reporta cuando no hay ninguno.
+- **El zoom es rueda, no botón.** Un pellizco en un RTS es zoom de cámara; el
+  juego lo entiende como `REL_WHEEL`. Se limitan las muescas a ±3 por gesto
+  para no inundar la cola del kernel con un pellizco rápido.
+- **`AudioTrack` no bloquea el arranque del juego.** Si el audio falla, la
+  sesión sigue: se pierde el sonido, no la partida. El estado se muestra en la
+  tarjeta "Motor nativo" con la latencia real y los *underruns*.
+- **El FIFO es el puente más simple que funciona.** Un socket o un servicio
+  NDK darían más control, pero un FIFO no necesita protocolo, ni framing, ni
+  JNI: el motor escribe PCM y la app lo lee. Cuando el motor tenga su propio
+  sink, se cambia la implementación de `AudioPcmSource`.
+
+## Fase 9 (fuera de esta versión)
+
+- **Empaquetar los binarios** de Wine / Box64 (o FEX-Emu) / DXVK / Turnip y
+  firmar el manifiesto con una clave de release. La Fase 8 ya los instala,
+  verifica y lanza; lo que falta es el paquete.
+- **Dispositivo `uinput` propio** (`UI_DEV_SETUP` + `UI_DEV_CREATE`), que exige
+  `ioctl` y por tanto un módulo JNI/NDK. Hoy se escribe en un nodo existente.
 - **Pausa real** (SIGSTOP/ptrace) en lugar del marcador de UI actual.
   Android no expone el API desde la JVM y el motor lo deja documentado.
 - **Alta manual de juegos** desde un `.exe` arbitrario.
 - **Ajustes finos de audio** (DPI de los controles, idioma, límite global de
-  FPS) y apertura real de un `AudioTrack`/Oboe: la Fase 7 compone las
-  variables, pero no reproduce nada.
+  FPS) y salida Oboe/AAudio nativa en lugar de `AudioTrack`.
 - **Cifrado del prefijo** y migración multi-juego.
