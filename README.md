@@ -1129,7 +1129,28 @@ interfaz avisa explícitamente de que puede haber juegos sin visitar.
 APK en `app/build/outputs/apk/debug/app-debug.apk`.
 
 En cada push a `main`, GitHub Actions compila y publica el artefacto
-`NEXORA-APK`.
+`NEXORA-APK` (`.github/workflows/build.yml`).
+
+### Publicar una versión
+
+`.github/workflows/build-release.yml` compila y crea una release con el APK
+adjunto. Se dispara de dos formas:
+
+```bash
+git tag v1.0
+git push origin v1.0        # etiquetas que empiezan por "v"
+```
+
+O a mano desde **Actions → Compilar y publicar APK → Run workflow**, con una
+etiqueta opcional. Si se deja vacía, se deduce de `versionName` y se añade el
+número de ejecución (`v0.9.0-build.42`), de modo que dos ejecuciones manuales
+nunca colisionan en la misma release.
+
+El job usa JDK 17 (Temurin), instala el SDK de Android 34, ejecuta
+`./gradlew assembleDebug` y sube `app/build/outputs/apk/debug/app-debug.apk` con
+`softprops/action-gh-release`. Requiere el permiso `contents: write`, que ya está
+declarado en el workflow; no hace falta configurar ningún secreto porque usa el
+`GITHUB_TOKEN` del propio repositorio.
 
 ## Decisiones de la Fase 3
 

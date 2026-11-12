@@ -1,0 +1,119 @@
+name: Compilar y publicar APK
+
+# Se dispara al empujar una etiqueta que empiece por "v" (v0.9, v1.0, ...)
+# o manualmente desde la pestana Actions.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Etiqueta de la release (ej. v1.0). Vacio: se deduce de versionName.'
+        required: false
+        type: string
+
+# Necesario para que GITHUB_TOKEN pueda crear la release.
+permissions:
+  contents: write
+
+# Evita que dos ejecuciones sobre la misma referencia publiquen a la vez.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Compilar APK y publicar release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Obtener el codigo del repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Dar permisos de ejecucion a Gradle
+        run: chmod +x gradlew
+
+      - name: Compilar el APK de depuracion
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Comprobar que el APK existe
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK" || { echo "::error::No se genero $APK"; exit 1; }
+          ls -lh "$APK"
+          sha256sum "$APK" | tee apk-sha256.txt
+
+      - name: Resolver la etiqueta de la release
+        id: release_tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "push" ]; then
+            TAG="$REF_NAME"
+          elif [ -n "${INPUT_TAG:-}" ]; then
+            TAG="$INPUT_TAG"
+          else
+            # Ejecucion manual sin etiqueta: se deriva de versionName.
+            VERSION="$(sed -n 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+            TAG="v${VERSION:-0.0.0}-build.${GITHUB_RUN_NUMBER}"
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "::error::La etiqueta '$TAG' debe empezar por 'v'"; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Etiqueta de la release: $TAG"
+
+      - name: Guardar el APK como artefacto de la ejecucion
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEXORA-${{ steps.release_tag.outputs.tag }}-debug
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            apk-sha256.txt
+          retention-days: 14
+
+      - name: Publicar la release con el APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: NEXORA ${{ steps.release_tag.outputs.tag }}
+          body: |
+            APK de depuracion compilado automaticamente desde
+            `${{ github.sha }}` (rama `${{ github.ref_name }}`).
+
+            - Paquete: `com.nexora.android`
+            - Archivo: `app-debug.apk`
+            - Firma: certificado de depuracion (no apto para Play Store)
+
+            Los binarios de Wine, Box64 y DXVK no se distribuyen con el APK:
+            deben instalarse aparte en `assets/runtime/` con su manifiesto.
+          files: app/build/outputs/apk/debug/app-debug.apk
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
