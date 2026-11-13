@@ -1,0 +1,23 @@
+NEXORA · procedencia del runtime empaquetado
+============================================
+
+Generado por tools/fetch-runtime.sh. No editar a mano.
+
+Componente   Box64
+  Versión    0.4.4
+  Origen     Winlator 11.2 (https://github.com/brunodev85/winlator)
+  Licencia   MIT (Copyright (c) 2020-2025 ptitSeb)
+  Archivo    box64/box64-0.4.4-arm64.tgz
+  SHA-256    137390f355deeb5a358a97a20d61d6b3957451658157d1666ede8fbdaeaec50a
+
+Componente   Wine
+  Versión    la incluida en Winlator 11.2 (/opt/wine)
+  Origen     Winlator 11.2 (https://github.com/brunodev85/winlator)
+  Licencia   LGPL-2.1-or-later (https://www.winehq.org/license)
+  Archivo    wine/wine-11.2-arm64.tgz
+  SHA-256    d229e041686a5ead212ee3e46892b671e426c46dc73febe53e3d4364853dc380
+
+El APK de origen se distribuye bajo GPLv3. NEXORA no modifica los binarios:
+los empaqueta tal cual y los extrae en el dispositivo. Quien redistribuya este
+APK debe mantener las licencias anteriores y ofrecer el código fuente
+correspondiente (https://github.com/brunodev85/winlator y https://github.com/ptitSeb/box64).

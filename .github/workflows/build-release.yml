@@ -49,6 +49,14 @@ jobs:
       - name: Dar permisos de ejecucion a Gradle
         run: chmod +x gradlew
 
+      - name: Integrar el runtime (Wine + Box64)
+        # Descarga Winlator 11.2, verifica su SHA-256 y empaqueta los binarios
+        # en assets/runtime. Sin este paso el APK compila igual, pero sin motor.
+        run: |
+          set -euo pipefail
+          command -v zstd >/dev/null || sudo apt-get install -y zstd
+          ./tools/fetch-runtime.sh
+
       - name: Compilar el APK de depuracion
         run: ./gradlew assembleDebug --stacktrace
 

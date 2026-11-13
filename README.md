@@ -1,4 +1,4 @@
-# NEXORA v0.9 — Fase 9
+# NEXORA v0.10 — Fase 10
 
 **Windows Gaming Runtime for Android.**
 
@@ -35,7 +35,7 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   con `LD_LIBRARY_PATH` y `PATH` completos, **puente táctil `evdev`** que
   escribe eventos del kernel (`input_event`) y **salida de audio real** con
   `AudioTrack` en modo baja latencia.
-- **Fase 9 (v0.9, esta versión):** **monitor de rendimiento flotante**
+- **Fase 9 (v0.9):** **monitor de rendimiento flotante**
   (`OverlayService` + `WindowManager` + Compose, arrastrable, con FPS del motor
   vía `DXVK_HUD`, RAM/CPU del sistema y cierre de emergencia), **gestor
   completo de partidas guardadas** (escaneo de carpetas de guardado del
@@ -43,30 +43,34 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   previa e importación/exportación por SAF) y **consola de logs en vivo con
   reporte de fallos** (registro de sesión persistido en disco y diagnóstico
   automático de SIGSEGV, DLL ausente, `DEVICE_LOST`, OOM…).
+- **Fase 10 (v0.10, esta versión):** **runtime empaquetado**. Un script
+  reproducible descarga Winlator 11.2, verifica su SHA-256, extrae **Box64
+  0.4.4** y el árbol de **Wine** y los empaqueta en `assets/runtime/` (95 MB en
+  dos `.tgz`) con un manifiesto de huellas y un archivo de procedencia. La app
+  los extrae en `filesDir/runtime` la primera vez —lector de `.tar.gz` en
+  Kotlin puro, sin dependencias— y marca los ejecutables.
 
-> **El motor es real, los binarios no viajan en el APK.** La Fase 8 sustituye
-> los stubs por la maquinaria completa —extracción, verificación SHA-256,
-> `chmod`, `ProcessBuilder` con entorno y `LD_LIBRARY_PATH`, puente `evdev` y
-> `AudioTrack`—, pero **NEXORA no redistribuye Wine, Box64, DXVK ni Turnip**:
-> pesan cientos de megabytes, tienen licencias propias y dependen del SoC. Si
-> `filesDir/runtime` está vacío, el motor falla de forma explícita con
-> `BinaryNotInstalledException` y la UI dice exactamente qué falta y dónde
-> ponerlo (`assets/runtime/manifest.txt`).
+> **El APK ya trae los binarios, pero el motor todavía no puede ejecutarlos.**
+> Es una limitación del binario y de la plataforma, no del empaquetado, y se
+> comprobó sobre los archivos que van dentro:
 >
-> **Lo que sí funciona sin binarios:** la app compila, arranca, instala y
-> verifica lo que encuentre, abre el `AudioTrack`, intenta abrir un nodo
-> `evdev` y lo reporta. Lo que no puede hacer es ejecutar un `.exe` que no
-> tiene con qué ejecutar.
+> 1. **`box64` apunta a otra app.** Es un ELF ARM64 cuyo intérprete está fijado
+>    a `/data/data/com.winlator/files/rootfs/lib/ld-linux-aarch64.so.1`. Bajo
+>    `com.nexora.android` ese archivo no existe, así que `execve` falla con
+>    `ENOENT` por mucho que el binario esté presente y sea ejecutable.
+> 2. **`wine` es x86-64 y glibc.** Espera `/lib64/ld-linux-x86-64.so.2` y las
+>    bibliotecas del rootfs de Winlator (396 MB sin comprimir). Sin ese rootfs
+>    montado, Box64 no tiene qué cargar.
+> 3. **`targetSdk 34` prohíbe ejecutar desde el directorio de datos.** Android
+>    10 (API 29) bloquea `execve` sobre archivos de `filesDir` para apps con
+>    `targetSdk >= 29`. Winlator declara `targetSdk 28` precisamente por esto.
 >
-> **La Fase 9 no cambia eso.** El HUD flotante, el gestor de partidas y el
-> analizador de fallos funcionan sobre lo que haya: si no hay binarios, el HUD
-> muestra RAM/CPU reales y los FPS del overlay (etiquetados como tales, nunca
-> como FPS del juego), el gestor de partidas encuentra cero carpetas y el
-> analizador dice "runtime sin binarios".
->
-> **No avanza a la Fase 10.** Crear un dispositivo `uinput` propio (requiere
-> `ioctl`, es decir JNI), empaquetar los binarios firmados y la pausa real con
-> SIGSTOP siguen fuera de alcance.
+> Lo que la Fase 10 sí deja resuelto: descarga reproducible con huella fijada,
+> verificación de integridad antes de escribir, extracción con permisos,
+> manifiesto y trazabilidad de licencias. Ejecutar de verdad exige una fase
+> más: empaquetar el rootfs completo con `proot` y bajar el `targetSdk`, o
+> compilar Wine y Box64 contra Bionic y servirlos desde `jniLibs` (el único
+> directorio desde el que Android permite ejecutar).
 
 ## Requisitos cumplidos
 
@@ -1128,6 +1132,16 @@ interfaz avisa explícitamente de que puede haber juegos sin visitar.
 
 APK en `app/build/outputs/apk/debug/app-debug.apk`.
 
+El APK solo incluye Wine y Box64 si antes se ejecuta:
+
+```bash
+./tools/fetch-runtime.sh     # descarga Winlator 11.2, verifica y empaqueta (~95 MB)
+```
+
+Los `.tgz` resultantes no se versionan (`.gitignore`); el manifiesto con las
+huellas y `RUNTIME-SOURCE.txt` sí, para que el contrato y las licencias queden
+en el repositorio.
+
 En cada push a `main`, GitHub Actions compila y publica el artefacto
 `NEXORA-APK` (`.github/workflows/build.yml`).
 
@@ -1436,11 +1450,11 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
   preferencias: el usuario puede revocarlo en Ajustes sin avisar, y la pantalla
   lo relee en cada `ON_RESUME`.
 
-## Fase 10 (fuera de esta versión)
+## Fase 11 (fuera de esta versión)
 
-- **Empaquetar los binarios** de Wine / Box64 (o FEX-Emu) / DXVK / Turnip y
-  firmar el manifiesto con una clave de release. La Fase 8 ya los instala,
-  verifica y lanza; lo que falta es el paquete.
+- **Ejecutar el runtime empaquetado**: rootfs completo con `proot` (o build
+  contra Bionic en `jniLibs`), `targetSdk` compatible con `execve` y firma de
+  release del APK. La Fase 10 deja el paquete; falta el arranque.
 - **Dispositivo `uinput` propio** (`UI_DEV_SETUP` + `UI_DEV_CREATE`), que exige
   `ioctl` y por tanto un módulo JNI/NDK. Hoy se escribe en un nodo existente.
 - **Pausa real** (SIGSTOP/ptrace) en lugar del marcador de UI actual.

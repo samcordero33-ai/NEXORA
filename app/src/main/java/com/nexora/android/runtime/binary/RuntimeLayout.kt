@@ -71,10 +71,10 @@ data class RuntimeLayout(
             val binaries = linkedMapOf<BinaryComponent, String>()
             for (entry in entries) {
                 if (binaries.containsKey(entry.component)) continue
-                val file = File(root, entry.targetPath)
+                val file = File(root, entry.primaryBinaryPath())
                 if (!file.isFile) continue
                 if (entry.executable && !file.canExecute()) continue
-                val isPrimary = entry.component.primaryBinary == entry.fileName
+                val isPrimary = entry.archive || entry.component.primaryBinary == entry.fileName
                 if (entry.executable || isPrimary) {
                     binaries[entry.component] = file.absolutePath
                 }

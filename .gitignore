@@ -18,3 +18,9 @@ app/build/
 
 # El wrapper sí se versiona: garantiza que todos compilan con la misma
 # versión de Gradle. No excluir gradle/wrapper/gradle-wrapper.jar.
+
+# Runtime empaquetado: lo reconstruye tools/fetch-runtime.sh a partir de una
+# URL y una huella fijas (~95 MB). El manifiesto y la procedencia sí se
+# versionan: son el contrato que lee la app.
+app/src/main/assets/runtime/wine/*.tgz
+app/src/main/assets/runtime/box64/*.tgz

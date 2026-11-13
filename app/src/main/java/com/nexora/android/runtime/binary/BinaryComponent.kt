@@ -49,6 +49,10 @@ enum class BinaryComponent(
  *   (útil para pruebas y para cargas que el usuario aporta a mano).
  * @property executable Si hay que marcar el archivo como ejecutable.
  * @property sizeBytes Tamaño esperado, o `-1` si no se declara.
+ * @property archive `true` si el asset es un `.tar.gz` que se extrae en
+ *   [targetPath] en vez de copiarse como archivo suelto.
+ * @property binaryPath Ejecutable principal **dentro** de [targetPath], para
+ *   las entradas de tipo archivo comprimido (`bin/wine`, `box64`…).
  */
 data class BinaryEntry(
     val component: BinaryComponent,
@@ -57,6 +61,8 @@ data class BinaryEntry(
     val sha256: String = "",
     val executable: Boolean = false,
     val sizeBytes: Long = -1L,
+    val archive: Boolean = false,
+    val binaryPath: String = "",
 ) {
 
     /** `true` si hay una huella declarada que se pueda comparar. */
@@ -64,4 +70,10 @@ data class BinaryEntry(
 
     /** Nombre del archivo destino, para mensajes y para el resolver. */
     val fileName: String get() = targetPath.substringAfterLast('/')
+
+    /** Ruta del ejecutable principal, absoluta o relativa a la raíz. */
+    fun primaryBinaryPath(): String = when {
+        archive && binaryPath.isNotEmpty() -> "$targetPath/$binaryPath"
+        else -> targetPath
+    }
 }

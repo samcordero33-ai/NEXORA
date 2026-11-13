@@ -2,6 +2,7 @@ package com.nexora.android.runtime.binary
 
 import java.io.File
 import java.io.FileOutputStream
+import java.io.FilterInputStream
 import java.io.InputStream
 
 /**
@@ -43,6 +44,30 @@ class BinaryInstaller(
         for (entry in entries) {
             if (!source.exists(entry.assetPath)) {
                 missing += "${entry.component.id}:${entry.assetPath}"
+                continue
+            }
+            if (entry.archive) {
+                val targetDir = resolveTarget(entry.targetPath)
+                if (targetDir == null) {
+                    failures += InstallFailure(
+                        entry = entry,
+                        reason = "La ruta destino se sale del directorio de instalación",
+                    )
+                    continue
+                }
+                try {
+                    if (isArchiveUpToDate(entry, targetDir)) {
+                        applyArchivePermissions(entry, targetDir)
+                        upToDate += installedDescriptor(entry, targetDir)
+                    } else {
+                        installed += extractArchive(entry, targetDir)
+                    }
+                } catch (error: Exception) {
+                    failures += InstallFailure(
+                        entry = entry,
+                        reason = error.message ?: error.javaClass.simpleName,
+                    )
+                }
                 continue
             }
             val target = resolveTarget(entry.targetPath)
@@ -151,6 +176,106 @@ class BinaryInstaller(
     }
 
     /**
+     * `true` si el archivo comprimido ya se extrajo con esa misma huella.
+     *
+     * Se mira un sello dentro del directorio en vez de recalcular el SHA-256
+     * del `.tar.gz` en cada arranque: serían 95 MB de lectura cada vez que el
+     * usuario abre un juego.
+     */
+    fun isArchiveUpToDate(entry: BinaryEntry, targetDir: File): Boolean {
+        if (!targetDir.isDirectory) return false
+        val marker = File(targetDir, ARCHIVE_MARKER)
+        if (marker.isFile) {
+            if (!entry.hasChecksum) return true
+            return marker.readText().trim().equals(entry.sha256, ignoreCase = true)
+        }
+        // Instalación anterior al sello: vale si el ejecutable principal está.
+        return entry.binaryPath.isNotEmpty() && File(targetDir, entry.binaryPath).isFile
+    }
+
+    /** Descriptor de un componente ya extraído, para el informe. */
+    private fun installedDescriptor(entry: BinaryEntry, targetDir: File): InstalledBinary {
+        val binary = if (entry.binaryPath.isEmpty()) targetDir else File(targetDir, entry.binaryPath)
+        return InstalledBinary(
+            component = entry.component,
+            path = binary.absolutePath,
+            sizeBytes = if (binary.isFile) binary.length() else 0,
+            sha256 = entry.sha256,
+            executable = entry.executable,
+        )
+    }
+
+    /**
+     * Extrae un `.tar.gz` en un directorio temporal y lo mueve a su sitio solo
+     * si la huella coincide. Un árbol a medias nunca queda instalado.
+     */
+    private fun extractArchive(entry: BinaryEntry, targetDir: File): InstalledBinary {
+        val staging = File(targetDir.parentFile, "${targetDir.name}.part")
+        if (staging.exists()) staging.deleteRecursively()
+        if (!staging.mkdirs()) {
+            throw IllegalStateException("No se pudo crear ${staging.absolutePath}")
+        }
+
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val counter = CountingInputStream(source.open(entry.assetPath))
+        val stats = try {
+            java.security.DigestInputStream(counter, digest).use { checked ->
+                TarGzExtractor(staging).extract(checked)
+            }
+        } finally {
+            counter.close()
+        }
+
+        val actual = digest.digest().joinToString("") {
+            String.format(java.util.Locale.US, "%02x", it)
+        }
+        if (entry.hasChecksum && !Sha256.matches(entry.sha256, actual)) {
+            staging.deleteRecursively()
+            throw IllegalStateException(
+                "Huella distinta para ${entry.assetPath} (esperada ${entry.sha256.take(12)}…, " +
+                    "obtenida ${actual.take(12)}…)"
+            )
+        }
+        if (entry.sizeBytes >= 0 && counter.count != entry.sizeBytes) {
+            staging.deleteRecursively()
+            throw IllegalStateException(
+                "Tamaño distinto para ${entry.assetPath}: ${counter.count} de ${entry.sizeBytes} bytes"
+            )
+        }
+
+        if (targetDir.exists() && !targetDir.deleteRecursively()) {
+            staging.deleteRecursively()
+            throw IllegalStateException("No se pudo reemplazar ${targetDir.absolutePath}")
+        }
+        if (!staging.renameTo(targetDir)) {
+            staging.deleteRecursively()
+            throw IllegalStateException("No se pudo mover ${staging.name} a ${targetDir.name}")
+        }
+        File(targetDir, ARCHIVE_MARKER).writeText(actual)
+        applyArchivePermissions(entry, targetDir)
+
+        val binary = if (entry.binaryPath.isEmpty()) targetDir else File(targetDir, entry.binaryPath)
+        return InstalledBinary(
+            component = entry.component,
+            path = binary.absolutePath,
+            sizeBytes = stats.bytes,
+            sha256 = actual,
+            executable = entry.executable,
+        )
+    }
+
+    /** Marca como ejecutable el binario principal de un componente extraído. */
+    private fun applyArchivePermissions(entry: BinaryEntry, targetDir: File) {
+        if (entry.binaryPath.isEmpty()) return
+        val binary = File(targetDir, entry.binaryPath)
+        if (!binary.isFile) return
+        binary.setReadable(true, true)
+        if (entry.executable) {
+            binary.setExecutable(true, true)
+        }
+    }
+
+    /**
      * Aplica permisos: lectura para el dueño y, si toca, ejecución.
      *
      * `ownerOnly = true` en el segundo parámetro evita el clásico `chmod 777`:
@@ -163,6 +288,11 @@ class BinaryInstaller(
         if (entry.executable) {
             target.setExecutable(true, true)
         }
+    }
+
+    private companion object {
+        /** Sello con la huella del archivo ya extraído. */
+        const val ARCHIVE_MARKER = ".nexora-archive"
     }
 
     /** Resuelve el destino y comprueba que no se escape de [root]. */
@@ -219,5 +349,35 @@ data class InstallReport(
         if (missing.isNotEmpty()) parts += "${missing.size} sin empaquetar"
         if (failures.isNotEmpty()) parts += "${failures.size} con error"
         return if (parts.isEmpty()) "Sin componentes en el manifiesto" else parts.joinToString(", ")
+    }
+}
+
+/**
+ * Contador de bytes leídos.
+ *
+ * Permite comparar el tamaño del `.tar.gz` con el declarado en el manifiesto
+ * sin volver a abrir el archivo: el conteo sale de la misma pasada que extrae.
+ */
+private class CountingInputStream(private val inner: InputStream) : FilterInputStream(inner) {
+
+    var count: Long = 0L
+        private set
+
+    override fun read(): Int {
+        val value = super.read()
+        if (value >= 0) count += 1
+        return value
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        val read = super.read(buffer, offset, length)
+        if (read > 0) count += read
+        return read
+    }
+
+    override fun skip(amount: Long): Long {
+        val skipped = super.skip(amount)
+        if (skipped > 0) count += skipped
+        return skipped
     }
 }

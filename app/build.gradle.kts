@@ -18,8 +18,8 @@ android {
         minSdk = 26
         targetSdk = 34
 
-        versionCode = 9
-        versionName = "0.9.0"
+        versionCode = 10
+        versionName = "0.10.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -58,6 +58,12 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+
+    androidResources {
+        // Los .tar.gz del runtime ya estan comprimidos: volver a comprimirlos
+        // en el APK cuesta minutos de build y no ahorra un solo byte.
+        noCompress += listOf("tgz")
     }
 }
 
