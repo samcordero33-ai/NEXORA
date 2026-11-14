@@ -8,7 +8,7 @@ Componente   Box64
   Origen     Winlator 11.2 (https://github.com/brunodev85/winlator)
   Licencia   MIT (Copyright (c) 2020-2025 ptitSeb)
   Archivo    box64/box64-0.4.4-arm64.tgz
-  SHA-256    137390f355deeb5a358a97a20d61d6b3957451658157d1666ede8fbdaeaec50a
+  SHA-256    012fb26f63f07af643437accdcfab2c4f0ab2c6347b29a76bf2e178ea7f79415
 
 Componente   Wine
   Versión    la incluida en Winlator 11.2 (/opt/wine)
@@ -17,7 +17,19 @@ Componente   Wine
   Archivo    wine/wine-11.2-arm64.tgz
   SHA-256    d229e041686a5ead212ee3e46892b671e426c46dc73febe53e3d4364853dc380
 
-El APK de origen se distribuye bajo GPLv3. NEXORA no modifica los binarios:
-los empaqueta tal cual y los extrae en el dispositivo. Quien redistribuya este
-APK debe mantener las licencias anteriores y ofrecer el código fuente
-correspondiente (https://github.com/brunodev85/winlator y https://github.com/ptitSeb/box64).
+Modificaciones introducidas por NEXORA
+--------------------------------------
+box64 (MIT permite la modificacion y redistribucion):
+  - Interprete ELF reapuntado con patchelf:
+      /data/data/com.winlator/files/rootfs/lib/ld-linux-aarch64.so.1
+      -> /data/data/com.nexora.android/files/runtime/box64/lib/ld-linux-aarch64.so.1
+  - RUNPATH: anadido /data/data/com.nexora.android/files/runtime/box64/lib y $ORIGIN/lib.
+  - Se anaden al paquete el cargador ld-linux-aarch64.so.1 y las bibliotecas
+    glibc aarch64 (libc, libm, libresolv, libdl, libpthread) tomadas del mismo
+    rootfs de Winlator.
+Wine: sin modificar (se empaqueta tal cual).
+
+El APK de origen se distribuye bajo GPLv3. Quien redistribuya este APK debe
+mantener las licencias anteriores y ofrecer el codigo fuente correspondiente
+(https://github.com/brunodev85/winlator y https://github.com/ptitSeb/box64).
+El script que aplica el parche es la descripcion exacta del cambio.

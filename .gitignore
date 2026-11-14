@@ -23,4 +23,6 @@ app/build/
 # URL y una huella fijas (~95 MB). El manifiesto y la procedencia sí se
 # versionan: son el contrato que lee la app.
 app/src/main/assets/runtime/wine/*.tgz
-app/src/main/assets/runtime/box64/*.tgz
+# El de box64 SI se versiona: es el unico binario modificado por NEXORA (parche
+# de interprete con patchelf) y pesa 7 MB. El de Wine son 89 MB sin modificar
+# y GitHub rechaza archivos de mas de 100 MB.

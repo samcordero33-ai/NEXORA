@@ -15,7 +15,7 @@
 # Origen: Winlator 11.2 (brunodev85/winlator), GPLv3.
 # Wine: LGPL-2.1+. Box64: MIT. Ver RUNTIME-SOURCE.txt.
 
-version=9
+version=10
 
 [box64]
 asset=box64/box64-0.4.4-arm64.tgz
@@ -23,8 +23,8 @@ target=box64
 archive=true
 binary=box64
 executable=true
-sha256=137390f355deeb5a358a97a20d61d6b3957451658157d1666ede8fbdaeaec50a
-size=6176366
+sha256=012fb26f63f07af643437accdcfab2c4f0ab2c6347b29a76bf2e178ea7f79415
+size=7366412
 
 [wine]
 asset=wine/wine-11.2-arm64.tgz

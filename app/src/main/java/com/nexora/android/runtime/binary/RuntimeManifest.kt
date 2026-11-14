@@ -9,7 +9,7 @@ package com.nexora.android.runtime.binary
  * parsea en JVM pura (sin `org.json`, que en pruebas unitarias es un stub).
  *
  * ```
- * version=9
+ * version=10
  * [wine]
  * asset=bin/wine64
  * target=bin/wine64
@@ -32,7 +32,7 @@ data class RuntimeManifest(
 
     companion object {
 
-        const val CURRENT_VERSION = "9"
+        const val CURRENT_VERSION = "10"
 
         /** Manifiesto vacío: la app arranca y reporta que no hay motor. */
         val EMPTY = RuntimeManifest(version = CURRENT_VERSION, entries = emptyList())

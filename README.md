@@ -1,4 +1,4 @@
-# NEXORA v0.11 — Fase 11
+# NEXORA v0.11 — Fases 11 y 12
 
 **Windows Gaming Runtime for Android.**
 
@@ -50,7 +50,7 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   los extrae en `filesDir/runtime` la primera vez —lector de `.tar.gz` en
   Kotlin puro, sin dependencias— y marca los ejecutables.
 
-- **Fase 11 (v0.11, esta versión):** **pantalla completa inmersiva** en
+- **Fase 11 (v0.11):** **pantalla completa inmersiva** en
   `Auto Run`. Las barras del sistema se ocultan de verdad
   (`WindowInsetsControllerCompat`, `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`), la
   superficie del juego pasa a `fillMaxSize()` sin bordes ni márgenes y el panel
@@ -58,27 +58,42 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   detrás de un botón flotante semitransparente en la esquina superior. Al
   pulsar "Lanzar", la pantalla entra sola en modo juego.
 
-> **El APK ya trae los binarios, pero el motor todavía no puede ejecutarlos.**
-> Es una limitación del binario y de la plataforma, no del empaquetado, y se
-> comprobó sobre los archivos que van dentro:
+- **Fase 12 (v0.11, esta versión):** **binarios parcheados para este paquete**.
+  `tools/fetch-runtime.sh` reapunta con `patchelf` el intérprete ELF de Box64 a
+  `/data/data/com.nexora.android/files/runtime/box64/lib/ld-linux-aarch64.so.1`
+  y añade a la ruta de búsqueda de bibliotecas esa carpeta más `$ORIGIN/lib`.
+  El cargador glibc aarch64 y las bibliotecas que necesita box64 (libc, libm,
+  libresolv, libdl, libpthread) viajan ahora dentro del paquete, extraídos del
+  mismo rootfs. El script **falla** si el binario parcheado conserva una sola
+  referencia a `com.winlator`, y una prueba lo vigila en cada compilación.
+
+> **El intérprete ya está parcheado y la cadena de ejecución funciona; lo que
+> sigue bloqueando el arranque es el permiso de ejecución de Android.**
 >
-> 1. **`box64` apunta a otra app.** Es un ELF ARM64 cuyo intérprete está fijado
->    a `/data/data/com.winlator/files/rootfs/lib/ld-linux-aarch64.so.1`. Bajo
->    `com.nexora.android` ese archivo no existe, así que `execve` falla con
->    `ENOENT` por mucho que el binario esté presente y sea ejecutable.
-> 2. **`wine` es x86-64 y glibc.** Espera `/lib64/ld-linux-x86-64.so.2` y las
->    bibliotecas del rootfs de Winlator (396 MB sin comprimir). Sin ese rootfs
->    montado, Box64 no tiene qué cargar.
-> 3. **`targetSdk 34` prohíbe ejecutar desde el directorio de datos.** Android
->    10 (API 29) bloquea `execve` sobre archivos de `filesDir` para apps con
->    `targetSdk >= 29`. Winlator declara `targetSdk 28` precisamente por esto.
+> Lo que la Fase 12 corrige, comprobado ejecutando los archivos que van dentro
+> del APK (emulación aarch64 con `qemu-aarch64-static` sobre las rutas
+> absolutas reales):
 >
-> Lo que la Fase 10 sí deja resuelto: descarga reproducible con huella fijada,
-> verificación de integridad antes de escribir, extracción con permisos,
-> manifiesto y trazabilidad de licencias. Ejecutar de verdad exige una fase
-> más: empaquetar el rootfs completo con `proot` y bajar el `targetSdk`, o
-> compilar Wine y Box64 contra Bionic y servirlos desde `jniLibs` (el único
-> directorio desde el que Android permite ejecutar).
+> 1. **`box64` ya no apunta a `com.winlator`.** El intérprete grabado en el ELF
+>    es ahora el del propio paquete, y el cargador existe en esa ruta. Antes
+>    `execve` fallaba con `ENOENT`; ahora el binario arranca y responde
+>    `Box64 arm64 v0.4.4 with Dynarec`.
+> 2. **Wine carga a través de Box64 sin rootfs.** No hace falta
+>    `/lib64/ld-linux-x86-64.so.2`: quien carga el ELF x86-64 es box64, que
+>    emula la ABI y resuelve `libc.so.6` con sus wrappers nativos. Por eso
+>    `bin/wine --version` responde `wine-10.10` sobre esta misma cadena. Los
+>    binarios de Wine **no** se parchean: reapuntar su intérprete a una ruta
+>    inexistente no arreglaría nada y añadiría una forma nueva de fallar.
+> 3. **Falta el permiso de ejecución.** Android 10 (API 29) bloquea `execve`
+>    sobre archivos de `filesDir` para apps con `targetSdk >= 29`, y NEXORA
+>    declara **34**. Winlator declara **28** justo por esto. Con el parcheo
+>    hecho, el error deja de ser `ENOENT` y pasa a ser `EACCES`.
+>
+> Dos salidas, ninguna trivial: **bajar `targetSdk` a 28** (lo que hace
+> Winlator; incompatible con publicar en Play Store) o **mover el runtime a
+> `jniLibs`** y ejecutar el cargador de forma explícita
+> (`ld-linux-aarch64.so.1 box64 wine …`), que es el único directorio desde el
+> que Android permite ejecutar con `targetSdk` moderno.
 
 ## Requisitos cumplidos
 
@@ -86,8 +101,8 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
 |---|---|
 | 100 % Kotlin nativo + Jetpack Compose + Android SDK | ✔ |
 | Sin librerías de escritorio Java (`javax.swing.*`, `java.awt.*`) | ✔ verificado en fuentes **y en los DEX del APK** |
-| Sin Wine / Box64 / DXVK | ✔ |
-| No se ejecuta ningún binario de Windows | ✔ el escáner solo lee metadatos |
+| Wine / Box64 empaquetados | ✔ Fase 10 · el motor aún no puede ejecutarlos desde `filesDir` |
+| Ejecución real de binarios de Windows | ✘ bloqueada por `targetSdk 34` (ver nota de las fases 11-12) |
 | Persistencia local (Room) con entidad `Game` (id, título, ruta del exe, ícono predeterminado, fecha de agregado) | ✔ `GameEntity` + `GameDao` + `NexoraDatabase` v2 |
 | Los juegos detectados sobreviven al reinicio | ✔ la biblioteca se lee de SQLite, no de memoria |
 | Interfaz de biblioteca en grilla de tarjetas gaming | ✔ `LazyVerticalGrid` + `GameCard` |
@@ -1458,6 +1473,31 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
   preferencias: el usuario puede revocarlo en Ajustes sin avisar, y la pantalla
   lo relee en cada `ON_RESUME`.
 
+## Decisiones de la Fase 12
+
+- **Se parchea box64, no wine.** box64 es el único ELF aarch64 con intérprete
+  de host: es el que el kernel tiene que resolver. Wine es x86-64 y lo carga
+  box64, que ignora su `PT_INTERP`; además no existe un cargador x86-64 en el
+  paquete al que apuntarlo. Comprobado: `wine --version` funciona con su
+  intérprete original intacto.
+- **El cargador viaja en el paquete.** Reapuntar el intérprete a una ruta que
+  no existe habría cambiado `ENOENT` por el mismo `ENOENT` con otro nombre. El
+  script mete `ld-linux-aarch64.so.1` y las cinco bibliotecas glibc que declara
+  el propio binario, y una prueba verifica que el archivo existe y es ELF
+  aarch64.
+- **El script falla si queda una referencia a `com.winlator`.** Un parcheo
+  perdido en una futura actualización del runtime es exactamente el tipo de
+  regresión silenciosa que se descubre en el móvil del usuario.
+- **`$ORIGIN/lib` como segunda entrada del RUNPATH.** La ruta absoluta es
+  obligatoria para el intérprete, pero `$ORIGIN/lib` mantiene el paquete
+  funcional si el directorio de instalación cambia.
+- **Se documenta la modificación en `RUNTIME-SOURCE.txt`.** La licencia MIT de
+  box64 permite modificar y redistribuir, pero exige conservar el aviso; decir
+  qué se cambió y con qué herramienta es lo mínimo.
+- **El manifiesto sube a `version=10`.** Cambia el contrato del paquete (ahora
+  hay un directorio `lib/`), y el instalador compara la huella del archivo, así
+  que las instalaciones antiguas se reextraen solas.
+
 ## Decisiones de la Fase 11
 
 - **Ocultar barras, no pintarlas de negro.** `hide(systemBars())` retira la
@@ -1483,7 +1523,7 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
 - **Sin bordes ni esquinas redondeadas en modo juego.** Cualquier adorno recorta
   píxeles del juego; el contenedor pierde `clip` y `border` cuando está activo.
 
-## Fase 12 (fuera de esta versión)
+## Fase 13 (fuera de esta versión)
 
 - **Ejecutar el runtime empaquetado**: rootfs completo con `proot` (o build
   contra Bionic en `jniLibs`), `targetSdk` compatible con `execve` y firma de
