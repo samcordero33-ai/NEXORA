@@ -2,6 +2,7 @@ package com.nexora.android.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,11 +17,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -77,6 +81,7 @@ import com.nexora.android.ui.components.RuntimeMonitorCard
 import com.nexora.android.ui.components.RuntimeSectionCard
 import com.nexora.android.ui.components.TouchControlsOverlay
 import com.nexora.android.ui.runner.AudioBridgeUiState
+import com.nexora.android.ui.runner.ImmersiveEffect
 import com.nexora.android.ui.runner.InputBridgeUiState
 import com.nexora.android.ui.runner.OverlayUiState
 import com.nexora.android.ui.runner.RuntimeBinaryUiState
@@ -133,14 +138,21 @@ fun GameRunnerRoute(
     }
 
     BackHandler(enabled = true) {
-        viewModel.shutdown()
-        onBack()
+        // Atrás sale primero del modo juego: es lo que espera cualquiera que
+        // haya entrado en pantalla completa y no quiere cerrar la sesión.
+        if (uiState.fullscreen) {
+            viewModel.setFullscreen(false)
+        } else {
+            viewModel.shutdown()
+            onBack()
+        }
     }
 
     GameRunnerScreen(
         uiState = uiState,
         controlLayout = controlLayout,
         onBack = {
+            viewModel.setFullscreen(false)
             viewModel.shutdown()
             onBack()
         },
@@ -164,6 +176,7 @@ fun GameRunnerRoute(
             viewModel.refreshOverlayPermission()
         },
         onDismissMessage = viewModel::dismissMessages,
+        onToggleFullscreen = viewModel::setFullscreen,
         modifier = modifier,
     )
 }
@@ -194,129 +207,243 @@ fun GameRunnerScreen(
     onToggleOverlay: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
     onDismissMessage: () -> Unit,
+    onToggleFullscreen: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val effectiveControlLayout = controlLayout ?: ControlLayout.defaults(uiState.game?.id.orEmpty())
     val isRunning = uiState.status is RuntimeStatus.Running ||
         uiState.status is RuntimeStatus.Paused
 
-    Surface(modifier = modifier.fillMaxSize(), color = NexoraBackground) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-        ) {
-            TopBar(
-                title = uiState.game?.name ?: "Ejecutando…",
-                status = uiState.status,
-                onBack = onBack,
-            )
+    // En modo juego las barras del sistema desaparecen de verdad (no se pintan
+    // de negro): el efecto las restaura al salir de la pantalla.
+    ImmersiveEffect(enabled = uiState.fullscreen)
 
-            Spacer(modifier = Modifier.height(12.dp))
+    // Si el motor falla en modo juego, se vuelve al panel: el error tiene que
+    // verse, no quedar detrás de una pantalla negra.
+    LaunchedEffect(uiState.status) {
+        if (uiState.fullscreen && uiState.status is RuntimeStatus.Failed) {
+            onToggleFullscreen(false)
+        }
+    }
 
-            GameSurface(
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = if (uiState.fullscreen) Color.Black else NexoraBackground,
+    ) {
+        if (uiState.fullscreen) {
+            FullscreenStage(
+                uiState = uiState,
                 layout = effectiveControlLayout,
-                hudVisible = uiState.hudVisible,
-                monitorVisible = uiState.monitorVisible,
-                monitor = uiState.monitor,
                 isRunning = isRunning,
                 onGesture = onGesture,
                 onViewportChange = onViewportChange,
+                onExitFullscreen = { onToggleFullscreen(false) },
             )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Toggles flotantes
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ToggleChip(
-                    label = "HUD",
-                    on = uiState.hudVisible,
-                    icon = Icons.Outlined.SportsEsports,
-                    onToggle = { onToggleHud(it) },
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+            ) {
+                TopBar(
+                    title = uiState.game?.name ?: "Ejecutando…",
+                    status = uiState.status,
+                    onBack = onBack,
                 )
-                ToggleChip(
-                    label = "Monitor",
-                    on = uiState.monitorVisible,
-                    icon = Icons.Outlined.MonitorHeart,
-                    onToggle = { onToggleMonitor(it) },
-                )
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            LifecycleButtons(
-                status = uiState.status,
-                onPrepare = onPrepare,
-                onLaunch = onLaunch,
-                onPause = onPause,
-                onResume = onResume,
-                onKill = onKill,
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            FloatingHudCard(
-                overlay = uiState.overlay,
-                onToggle = onToggleOverlay,
-                onRequestPermission = onRequestOverlayPermission,
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            EngineCard(
-                runtime = uiState.runtime,
-                input = uiState.input,
-                audio = uiState.audio,
-                onInstall = onInstallRuntime,
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (uiState.warnings.isNotEmpty()) {
-                WarningsCard(warnings = uiState.warnings)
                 Spacer(modifier = Modifier.height(12.dp))
-            }
 
-            if (uiState.composed != null) {
-                EnvironmentSummaryCard(composed = uiState.composed, settings = uiState.settings)
-                Spacer(modifier = Modifier.height(12.dp))
-                EnvironmentSettingsCard(
-                    settings = uiState.settings,
-                    onSave = onSaveSettings,
-                    onReset = onResetSettings,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                AudioSettingsCard(
-                    settings = uiState.audioSettings,
-                    onSave = onSaveAudio,
-                    onReset = onResetAudio,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    GameSurface(
+                        layout = effectiveControlLayout,
+                        hudVisible = uiState.hudVisible,
+                        monitorVisible = uiState.monitorVisible,
+                        monitor = uiState.monitor,
+                        isRunning = isRunning,
+                        onGesture = onGesture,
+                        onViewportChange = onViewportChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp),
+                    )
+                    FullscreenToggleButton(
+                        fullscreen = false,
+                        onClick = { onToggleFullscreen(true) },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                    )
+                }
 
-            RuntimeSectionCard(title = "Salida del motor") {
-                RuntimeLogSummary(logs = uiState.logs)
-                Spacer(modifier = Modifier.height(8.dp))
-                RuntimeLogPanel(
-                    logs = uiState.logs,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp),
-                )
-            }
-
-            if (uiState.infoMessage != null || uiState.errorMessage != null) {
                 Spacer(modifier = Modifier.height(12.dp))
-                MessageCard(
-                    message = uiState.infoMessage ?: uiState.errorMessage.orEmpty(),
-                    isError = uiState.errorMessage != null,
-                    onDismiss = onDismissMessage,
-                )
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                // Toggles flotantes
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ToggleChip(
+                        label = "HUD",
+                        on = uiState.hudVisible,
+                        icon = Icons.Outlined.SportsEsports,
+                        onToggle = { onToggleHud(it) },
+                    )
+                    ToggleChip(
+                        label = "Monitor",
+                        on = uiState.monitorVisible,
+                        icon = Icons.Outlined.MonitorHeart,
+                        onToggle = { onToggleMonitor(it) },
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                LifecycleButtons(
+                    status = uiState.status,
+                    onPrepare = onPrepare,
+                    onLaunch = onLaunch,
+                    onPause = onPause,
+                    onResume = onResume,
+                    onKill = onKill,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                FloatingHudCard(
+                    overlay = uiState.overlay,
+                    onToggle = onToggleOverlay,
+                    onRequestPermission = onRequestOverlayPermission,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                EngineCard(
+                    runtime = uiState.runtime,
+                    input = uiState.input,
+                    audio = uiState.audio,
+                    onInstall = onInstallRuntime,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (uiState.warnings.isNotEmpty()) {
+                    WarningsCard(warnings = uiState.warnings)
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                if (uiState.composed != null) {
+                    EnvironmentSummaryCard(composed = uiState.composed, settings = uiState.settings)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    EnvironmentSettingsCard(
+                        settings = uiState.settings,
+                        onSave = onSaveSettings,
+                        onReset = onResetSettings,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    AudioSettingsCard(
+                        settings = uiState.audioSettings,
+                        onSave = onSaveAudio,
+                        onReset = onResetAudio,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                RuntimeSectionCard(title = "Salida del motor") {
+                    RuntimeLogSummary(logs = uiState.logs)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    RuntimeLogPanel(
+                        logs = uiState.logs,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp),
+                    )
+                }
+
+                if (uiState.infoMessage != null || uiState.errorMessage != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    MessageCard(
+                        message = uiState.infoMessage ?: uiState.errorMessage.orEmpty(),
+                        isError = uiState.errorMessage != null,
+                        onDismiss = onDismissMessage,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+            }
         }
+    }
+}
+
+/**
+ * Modo juego: la superficie ocupa el 100% del área física y no queda nada más
+ * que la imagen, los controles táctiles y el botón para volver.
+ */
+@Composable
+private fun FullscreenStage(
+    uiState: com.nexora.android.ui.runner.RuntimeUiState,
+    layout: ControlLayout,
+    isRunning: Boolean,
+    onGesture: (InputEvent) -> Unit,
+    onViewportChange: (Float, Float) -> Unit,
+    onExitFullscreen: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        GameSurface(
+            layout = layout,
+            hudVisible = uiState.hudVisible,
+            monitorVisible = uiState.monitorVisible,
+            monitor = uiState.monitor,
+            isRunning = isRunning,
+            onGesture = onGesture,
+            onViewportChange = onViewportChange,
+            modifier = Modifier.fillMaxSize(),
+            fullscreen = true,
+        )
+
+        FullscreenToggleButton(
+            fullscreen = true,
+            onClick = onExitFullscreen,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(10.dp),
+        )
+    }
+}
+
+/**
+ * Botón flotante, pequeño y semitransparente, que alterna entre los dos modos.
+ *
+ * Va en la esquina superior derecha en ambos modos: si solo existiera en modo
+ * juego, entrar en pantalla completa dejaría al usuario sin forma de salir más
+ * que el gesto del sistema.
+ */
+@Composable
+private fun FullscreenToggleButton(
+    fullscreen: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = if (fullscreen) 0.25f else 0.45f))
+            .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
+            contentDescription = if (fullscreen) {
+                "Salir de pantalla completa"
+            } else {
+                "Pantalla completa"
+            },
+            tint = Color.White.copy(alpha = 0.85f),
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -391,16 +518,21 @@ private fun GameSurface(
     isRunning: Boolean,
     onGesture: (InputEvent) -> Unit,
     onViewportChange: (Float, Float) -> Unit,
+    modifier: Modifier = Modifier,
+    fullscreen: Boolean = false,
 ) {
     val density = LocalDensity.current
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(280.dp)
+    // En modo juego no hay borde ni esquinas redondeadas: cualquier adorno
+    // recorta píxeles del juego.
+    val chrome = if (fullscreen) {
+        modifier.background(Color(0xFF02050A))
+    } else {
+        modifier
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF02050A))
-            .border(1.dp, NexoraBorder, RoundedCornerShape(16.dp)),
-    ) {
+            .border(1.dp, NexoraBorder, RoundedCornerShape(16.dp))
+    }
+    BoxWithConstraints(modifier = chrome) {
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
         LaunchedEffect(widthPx, heightPx) {
@@ -434,7 +566,11 @@ private fun GameSurface(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "La superficie del juego aparecerá aquí cuando llegue el renderizado real.",
+                        text = if (fullscreen) {
+                            "Sin imagen del juego"
+                        } else {
+                            "La superficie del juego aparecerá aquí cuando llegue el renderizado real."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = NexoraTextSecondary,
                         modifier = Modifier.padding(horizontal = 24.dp),

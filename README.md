@@ -1,4 +1,4 @@
-# NEXORA v0.10 — Fase 10
+# NEXORA v0.11 — Fase 11
 
 **Windows Gaming Runtime for Android.**
 
@@ -43,12 +43,20 @@ NEXORA es una aplicación Android para ejecutar juegos de PC en móviles.
   previa e importación/exportación por SAF) y **consola de logs en vivo con
   reporte de fallos** (registro de sesión persistido en disco y diagnóstico
   automático de SIGSEGV, DLL ausente, `DEVICE_LOST`, OOM…).
-- **Fase 10 (v0.10, esta versión):** **runtime empaquetado**. Un script
+- **Fase 10 (v0.10):** **runtime empaquetado**. Un script
   reproducible descarga Winlator 11.2, verifica su SHA-256, extrae **Box64
   0.4.4** y el árbol de **Wine** y los empaqueta en `assets/runtime/` (95 MB en
   dos `.tgz`) con un manifiesto de huellas y un archivo de procedencia. La app
   los extrae en `filesDir/runtime` la primera vez —lector de `.tar.gz` en
   Kotlin puro, sin dependencias— y marca los ejecutables.
+
+- **Fase 11 (v0.11, esta versión):** **pantalla completa inmersiva** en
+  `Auto Run`. Las barras del sistema se ocultan de verdad
+  (`WindowInsetsControllerCompat`, `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`), la
+  superficie del juego pasa a `fillMaxSize()` sin bordes ni márgenes y el panel
+  de gestión (preparar, lanzar, pausar, reanudar, HUD, monitor) se oculta
+  detrás de un botón flotante semitransparente en la esquina superior. Al
+  pulsar "Lanzar", la pantalla entra sola en modo juego.
 
 > **El APK ya trae los binarios, pero el motor todavía no puede ejecutarlos.**
 > Es una limitación del binario y de la plataforma, no del empaquetado, y se
@@ -1450,7 +1458,32 @@ Los únicos imports del proyecto son `android.*`, `androidx.*`,
   preferencias: el usuario puede revocarlo en Ajustes sin avisar, y la pantalla
   lo relee en cada `ON_RESUME`.
 
-## Fase 11 (fuera de esta versión)
+## Decisiones de la Fase 11
+
+- **Ocultar barras, no pintarlas de negro.** `hide(systemBars())` retira la
+  barra de estado y la de navegación; con `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`
+  siguen accesibles con un gesto desde el borde. Es el comportamiento que
+  Android espera y evita que el usuario se quede sin salida.
+- **El modo inmersivo se deriva del estado, no se guarda.** `ImmersiveEffect`
+  aplica y deshace según `uiState.fullscreen`, y se reaplica en `ON_RESUME`
+  porque el sistema devuelve las barras al volver de segundo plano sin avisar.
+  Al salir de la pantalla, `onDispose` las restaura siempre.
+- **El botón flotante existe en los dos modos.** Si solo apareciera en modo
+  juego, entrar dejaría al usuario sin forma de salir más que el gesto del
+  sistema; si solo apareciera en modo normal, no habría manera de volver.
+- **"Lanzar" entra en pantalla completa solo si el lanzamiento no falla.** Si
+  el motor lanza una excepción (runtime sin binarios), el mensaje de error debe
+  quedar visible; entrar en modo juego lo taparía con una pantalla negra.
+- **Un fallo posterior devuelve al panel.** `RuntimeStatus.Failed` con la
+  pantalla en modo juego sale automáticamente: una pantalla negra sin
+  explicación es peor que un panel con el error.
+- **Atrás sale del modo juego antes de cerrar la sesión.** Es lo que espera
+  cualquiera que haya entrado en pantalla completa, y evita cerrar el motor sin
+  querer.
+- **Sin bordes ni esquinas redondeadas en modo juego.** Cualquier adorno recorta
+  píxeles del juego; el contenedor pierde `clip` y `border` cuando está activo.
+
+## Fase 12 (fuera de esta versión)
 
 - **Ejecutar el runtime empaquetado**: rootfs completo con `proot` (o build
   contra Bionic en `jniLibs`), `targetSdk` compatible con `execve` y firma de

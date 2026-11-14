@@ -76,6 +76,12 @@ data class RuntimeUiState(
     val monitor: RuntimeMonitorSnapshot = RuntimeMonitorSnapshot.EMPTY,
     val monitorVisible: Boolean = false,
     val hudVisible: Boolean = true,
+    /**
+     * `true` cuando la pantalla está en modo juego: barras del sistema
+     * ocultas, superficie al 100% y panel de gestión fuera de la vista.
+     * Se activa al lanzar y se alterna con el botón flotante.
+     */
+    val fullscreen: Boolean = false,
     val runtime: RuntimeBinaryUiState = RuntimeBinaryUiState(),
     val input: InputBridgeUiState = InputBridgeUiState(),
     val audio: AudioBridgeUiState = AudioBridgeUiState(),
@@ -457,6 +463,11 @@ class RuntimeViewModel(
         )
         try {
             engine.launch(env = composed)
+            // Al lanzar, la pantalla pasa a modo juego: el área del juego es lo
+            // único que importa y los botones de gestión estorban. Si el
+            // lanzamiento falla, se queda en modo normal para que el error se
+            // vea.
+            mutableUiState.update { it.copy(fullscreen = true) }
             // Los puentes se abren solo si el proceso llegó a arrancar: un
             // AudioTrack o un nodo evdev abiertos sin motor son recursos
             // ocupados para nada.
@@ -468,6 +479,11 @@ class RuntimeViewModel(
                 it.copy(errorMessage = error.message ?: error.javaClass.simpleName)
             }
         }
+    }
+
+    /** Alterna entre modo normal y modo juego (pantalla completa). */
+    fun setFullscreen(value: Boolean) {
+        mutableUiState.update { it.copy(fullscreen = value) }
     }
 
     fun pause() = engine.pause()
@@ -531,6 +547,10 @@ class RuntimeViewModel(
 
     /** Cierra el motor y libera todo lo que tenga un ciclo de vida. */
     fun shutdown() {
+        // Al salir de la pantalla se vuelve al modo normal: si el ViewModel
+        // sobrevive (navegación por estado), la próxima entrada no debe
+        // aparecer en pantalla completa sin que el usuario lo pida.
+        mutableUiState.update { it.copy(fullscreen = false) }
         stopBridges()
         monitorJob?.cancel()
         monitorJob = null
